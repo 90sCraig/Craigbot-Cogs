@@ -1,7 +1,7 @@
 {
     "author" : ["90s_Craig (<@90s_Craig>)"],
     "install_msg" : "Hi, thanks for adding my repo.",
-    "name" : "craig-cogs",
+    "name" : "Craigbot-Cogs",
     "short" : "Some fun and utility cogs for Red-DiscordBot",
     "description" : "Some fun and utility cogs for Red-DiscordBot"
 }
