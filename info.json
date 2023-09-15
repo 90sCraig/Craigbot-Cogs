@@ -1,8 +1,7 @@
 {
-    "author" : ["yourname (discord#identifer)"],
-    "install_msg" : "Message the user will recieve when they agree to install your repository.",
-    "name" : "Name of your repository.",
-    "short" : "Shot description of your repo.",
-    "description" : "Long description about your repository.",
-    "tags" : ["List of search tags on red portal for your repo."]
+	"name": "Craigbot Cogs",
+    "author" : ["90s_Craig (90s_Craig)"],
+	"short" : "90s_Craig's Cogs for Red-DiscordBot."
+    "description" : "Cogs modified from other cogs to use on 90s_Craig's discord server.",
+    "install_msg" : "Thanks for installing",
 }
