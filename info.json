@@ -1,9 +1,9 @@
 {
     "name": "Craigbot-Cogs",
     "author": [
-        "90s_Craig (90s_Craig)"
+        "90s_Craig (<@90s_Craig>)"
     ],
     "short": "90s_Craig's Modified Cogs for Red-DiscordBot.",
-    "description": "Welcome to 90s_Craig's cog repository for Red-DiscordBot. Here, you'll find a variety of cogs crafted with a focus on enhancing your Discord server's functionality and fun.",
+    "description": "Welcome to 90s_Craig's cog repository for Red-DiscordBot. Here, you'll find a variety of cogs crafted with a focus on enhancing your Discord server's functionality and fun. [GitHub](https://github.com/90sCraig/Craigbot-Cogs)",
     "install_msg": "Thank you for installing 90s_Craig's repo! Your support means a lot. For further details on these cogs or to share any suggestions/bug reports, feel free to join our Discord community at [90s_Craig's Discord](https://discord.gg/2ScyEk2Nnz)."
 }
