@@ -8,5 +8,5 @@ Provide installation instructions and possible 3rd party requirements.
 Information on how to contact you about issues, bugs, and enhancements to your work
 
 # Credits
-* [owocado] (https://github.com/owocado) for making the MovieDB cog.
+* [owocado](https://github.com/owocado) for making the MovieDB cog.
 
