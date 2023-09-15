@@ -1,7 +1,7 @@
 {
-	"name": "Craigbot Cogs",
-    "author" : ["90s_Craig (90s_Craig)"],
-	"short" : "90s_Craig's Cogs for Red-DiscordBot."
-    "description" : "Cogs modified from other cogs to use on 90s_Craig's discord server.",
-    "install_msg" : "Thanks for installing",
+    "author" : ["90s_Craig (<@90s_Craig>)"],
+    "install_msg" : "Hi, thanks for adding my repo.",
+    "name" : "craig-cogs",
+    "short" : "Some fun and utility cogs for Red-DiscordBot",
+    "description" : "Some fun and utility cogs for Red-DiscordBot"
 }
