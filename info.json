@@ -1,9 +1,9 @@
 {
     "name": "Craigbot-Cogs",
     "author": [
-        "PhasecoreX (PhasecoreX#0635)"
+        "90s_Craig (90s_Craig)"
     ],
-    "short": "PhasecoreX's Cogs for Red-DiscordBot.",
-    "description": "My cogs focus on automation, where the bot will automatically respond or perform actions when needed, even if commands are not used. There's also other stuff thrown in there for fun.",
-    "install_msg": "Thank you for installing my repo!\nFor more information on my cogs, or to report any bugs/suggestions, go to my GitHub here: <https://github.com/PhasecoreX/PCXCogs>.\nYou can also find me in the Red Cog Support Discord server, or in my own PCXSupport Discord server here: https://discord.gg/QzdPp2b"
+    "short": "90s_Craig's Modified Cogs for Red-DiscordBot.",
+    "description": "Welcome to 90s_Craig's cog repository for Red-DiscordBot. Here, you'll find a variety of cogs crafted with a focus on enhancing your Discord server's functionality and fun.",
+    "install_msg": "Thank you for installing 90s_Craig's repo! Your support means a lot. For further details on these cogs or to share any suggestions/bug reports, feel free to join our Discord community at [90s_Craig's Discord](https://discord.gg/2ScyEk2Nnz)."
 }
