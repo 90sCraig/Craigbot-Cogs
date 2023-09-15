@@ -9,3 +9,5 @@ Information on how to contact you about issues, bugs, and enhancements to your w
 
 # Credits
 * 'owocado <https://github.com/owocado/cogs/commits?author=owocado>' for making the MovieDB cog.
+* `Dragon Fire <https://github.com/dragonfire535>`_ for being very kind and supportive guide.
+
