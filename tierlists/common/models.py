@@ -1,5 +1,4 @@
 import discord
-
 import itertools
 from tabulate import tabulate, SEPARATING_LINE
 import typing
@@ -7,8 +6,8 @@ from tierlists.common.eightbitANSI import EightBitANSI
 from . import Base
 from .utils import assign_tiers, GuildMessageable, tier_colors
 from pydantic import Field
-
 import difflib
+
 from redbot.core.bot import Red
 from redbot.core.utils import chat_formatting as cf
 
@@ -36,18 +35,16 @@ class Category(Base):
     def get_option(self, option: str):
         return self.choices.get(option)
 
-def add_option(
-    self, option: str, force: bool = False
-) -> tuple[typing.Optional[bool], str]:
-    if option in self.choices:
-        return False, option
-    elif not force and (
-        opt := difflib.get_close_matches(option, [*self.choices.keys()], n=1, cutoff=0.8)
-    ):
-        return None, opt[0]
+    def add_option(self, option: str, force: bool = False) -> tuple[typing.Optional[bool], str]:
+        if option in self.choices:
+            return False, option
+        elif not force:
+            opt = difflib.get_close_matches(option, [*self.choices.keys()], n=1, cutoff=0.8)
+            if opt:
+                return None, opt[0]
 
-    self.choices[option] = Choice(name=option, votes={})
-    return True, option
+        self.choices[option] = Choice(name=option, votes={})
+        return True, option
 
     def remove_option(self, option: str):
         if option not in self.choices:
@@ -78,9 +75,6 @@ def add_option(
         log.debug(f"Tiers assigned: {tiers_assigned}")
         log.debug(f"Choices votes: {choices_votes}")
         tiers = [*tiers_assigned.keys()]
-        # if not tiers_assigned:
-        #     embed.description = "No votes have been cast yet."
-        #     return embed
 
         columns = [
             *itertools.chain.from_iterable(
@@ -124,7 +118,6 @@ def add_option(
                     else [
                         index,
                         EightBitANSI.paint_white(col, underline=True),
-                        # + f"\n{'-'*len(col)}\n",
                         EightBitANSI.paint_white(
                             f"{choices_votes[col][0]}\{choices_votes[col][1]}"
                         )
@@ -134,12 +127,10 @@ def add_option(
             )
             for index, col in zip(indices, columns)
         ]
-        # log.debug(f"Data to tabulate: {data_to_tabulate}")
 
         tabulated = tabulate(
             data_to_tabulate,
             headers=["", "Choices", "Up\Down\nvotes"],
-            # showindex=indices,
             tablefmt="simple_outline",
             maxheadercolwidths=[None, 18, None, None],
             maxcolwidths=[None, 18, None, None],
