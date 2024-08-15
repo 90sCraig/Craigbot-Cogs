@@ -136,13 +136,13 @@ class Category(Base):
         ]
         # log.debug(f"Data to tabulate: {data_to_tabulate}")
 
-        tabulated = tabulate(
-            data_to_tabulate,
-            headers=["", "Choices", "Up\Down\nvotes"],
-            showindex=False,
-            tablefmt="simple_outline",
-            maxheadercolwidths=[None, 18, None, None],
-            maxcolwidths=[None, 18, None, None],
+    tabulated = tabulate(
+        rows,
+        headers=["Tier", "Choices", "Upvotes", "Downvotes"],  # Simplified headers
+        tablefmt="simple_outline",
+        maxheadercolwidths=[None, 18, None, None],
+        maxcolwidths=[None, 18, None, None],
+        showindex=False  # Disable row numbers
         )
 
         embed.description = f"Created By: <@{self.creator}>\n" + cf.box(
