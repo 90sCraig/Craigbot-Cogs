@@ -8,7 +8,7 @@ from . import Base
 from .utils import assign_tiers, GuildMessageable, tier_colors
 from pydantic import Field
 
-from fuzzywuzzy import process
+import difflib
 from redbot.core.bot import Red
 from redbot.core.utils import chat_formatting as cf
 
@@ -36,18 +36,18 @@ class Category(Base):
     def get_option(self, option: str):
         return self.choices.get(option)
 
-    def add_option(
-        self, option: str, force: bool = False
-    ) -> tuple[typing.Optional[bool], str]:
-        if option in self.choices:
-            return False, option
-        elif not force and (
-            opt := process.extractOne(option, [*self.choices.keys()], score_cutoff=80)
-        ):
-            return None, opt[0]
+def add_option(
+    self, option: str, force: bool = False
+) -> tuple[typing.Optional[bool], str]:
+    if option in self.choices:
+        return False, option
+    elif not force and (
+        opt := difflib.get_close_matches(option, [*self.choices.keys()], n=1, cutoff=0.8)
+    ):
+        return None, opt[0]
 
-        self.choices[option] = Choice(name=option, votes={})
-        return True, option
+    self.choices[option] = Choice(name=option, votes={})
+    return True, option
 
     def remove_option(self, option: str):
         if option not in self.choices:
