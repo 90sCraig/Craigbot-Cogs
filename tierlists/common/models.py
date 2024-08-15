@@ -137,7 +137,7 @@ class Category(Base):
         # log.debug(f"Data to tabulate: {data_to_tabulate}")
 
         tabulated = tabulate(
-            rows,
+            data_to_tabulate,
             headers=["Tier", "Choices", "Upvotes", "Downvotes"],  # Simplified headers
             tablefmt="simple_outline",
             maxheadercolwidths=[None, 18, None, None],
