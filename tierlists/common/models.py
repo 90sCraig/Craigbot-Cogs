@@ -142,7 +142,7 @@ class Category(Base):
         tablefmt="simple_outline",
         maxheadercolwidths=[None, 18, None, None],
         maxcolwidths=[None, 18, None, None],
-        showindex=False  # Disable row numbers
+        showindex=False,  # Disable row numbers
         )
 
         embed.description = f"Created By: <@{self.creator}>\n" + cf.box(
