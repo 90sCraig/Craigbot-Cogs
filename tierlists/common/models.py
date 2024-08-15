@@ -132,7 +132,8 @@ class Category(Base):
                     ]
                 )
             )
-            for index, col in zip(indices, columns)
+            # for index, col in zip(indices, columns)
+            for col in columns
         ]
         # log.debug(f"Data to tabulate: {data_to_tabulate}")
 
