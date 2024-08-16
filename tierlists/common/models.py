@@ -104,9 +104,11 @@ class Category(Base):
         )
 
         # Set the embed description
-        embed.description = f"Created By: <@{self.creator}>\n" + cf.box(
-            tabulated, lang="ansi"
-        )
+        embed.description = f"Created By: <@{self.creator}>\n```\n{tabulated}\n```"
+
+        # embed.description = f"Created By: <@{self.creator}>\n" + cf.box(
+        #    tabulated, lang="ansi"
+        # )
         return embed
 
 
