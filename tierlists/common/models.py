@@ -140,8 +140,8 @@ class Category(Base):
             data_to_tabulate,
             headers=["", "Choices", "Up/Down"],  # Simplified headers
             tablefmt="simple_outline",
-            maxheadercolwidths=[None, 15, None, None],
-            maxcolwidths=[None, 15, None, None],
+            maxheadercolwidths=[None, 15, None],
+            maxcolwidths=[None, 15, None],
             showindex=False  # Disable row numbers
         )
 
