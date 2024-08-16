@@ -138,11 +138,11 @@ class Category(Base):
 
         tabulated = tabulate(
             data_to_tabulate,
-            headers=["", "Choices", "Up/Down"],  # Simplified headers
-            tablefmt="simple_outline",
-            maxheadercolwidths=[None, 15, None],
-            maxcolwidths=[None, 15, None],
-            showindex=False  # Disable row numbers
+            headers=["Tier", "Movie Title", "Score"],  # Adjusted headers for three columns
+            tablefmt="simple_outline",  # Keeping the simple_outline format
+            maxheadercolwidths=[None, 18, None],  # Adjusted for three columns
+            maxcolwidths=[None, 18, None],  # Adjusted for three columns
+            showindex=False  # Ensures no row numbers are shown
         )
 
         embed.description = f"Created By: <@{self.creator}>\n" + cf.box(
