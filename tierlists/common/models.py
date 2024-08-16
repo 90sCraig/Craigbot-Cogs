@@ -96,7 +96,7 @@ class Category(Base):
         # Add headers and build the table with only three columns
         tabulated = tabulate(
             data_to_tabulate,
-            headers=["Tier", "Movie Title", "Score"],  # Adjusted headers for three columns
+            headers=["", "Movie Title", "Score"],  # Adjusted headers for three columns
             tablefmt="simple_outline",  # Keeping the simple_outline format
             maxheadercolwidths=[None, 18, None],  # Adjusted for three columns
             maxcolwidths=[None, 18, None],  # Adjusted for three columns
