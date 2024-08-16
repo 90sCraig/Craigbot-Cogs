@@ -1,4 +1,5 @@
 import discord
+
 import itertools
 from tabulate import tabulate, SEPARATING_LINE
 import typing
@@ -6,9 +7,11 @@ from tierlists.common.eightbitANSI import EightBitANSI
 from . import Base
 from .utils import assign_tiers, GuildMessageable, tier_colors
 from pydantic import Field
+
 from fuzzywuzzy import process
 from redbot.core.bot import Red
 from redbot.core.utils import chat_formatting as cf
+
 import logging
 
 log = logging.getLogger("red.bounty.tierlists.models")
@@ -33,7 +36,9 @@ class Category(Base):
     def get_option(self, option: str):
         return self.choices.get(option)
 
-    def add_option(self, option: str, force: bool = False) -> tuple[typing.Optional[bool], str]:
+    def add_option(
+        self, option: str, force: bool = False
+    ) -> tuple[typing.Optional[bool], str]:
         if option in self.choices:
             return False, option
         elif not force and (
@@ -58,8 +63,6 @@ class Category(Base):
     def get_voting_embed(self, percentiles: dict[str, int]):
         embed = discord.Embed(title=f"Tierlist: **{self.name}**")
         embed.set_footer(text=f"-# {self.description}")
-        
-        # Collect votes for each choice
         choices_votes = {
             k: (
                 sum((x == "upvote" for x in self.choices[k].votes.values())),
@@ -68,42 +71,80 @@ class Category(Base):
             for k in self.choices.keys()
         }
 
-        # Assign tiers based on votes
-        tiers_assigned = assign_tiers(choices_votes.copy(), percentiles)
+        tiers_assigned = assign_tiers(
+            choices_votes.copy(),
+            percentiles,
+        )
         log.debug(f"Tiers assigned: {tiers_assigned}")
         log.debug(f"Choices votes: {choices_votes}")
-        tiers = list(tiers_assigned.keys())
-        
+        tiers = [*tiers_assigned.keys()]
         if not tiers_assigned:
             embed.description = "No votes have been cast yet."
             return embed
 
-        # Prepare the data for tabulation
-        data_to_tabulate = []
-        
-        for tier in tiers:
-            tier_color = tier_colors[tier]()  # Get the color for the tier
-            tier_items = tiers_assigned.get(tier, [])
+        columns = [
+            *itertools.chain.from_iterable(
+                sum(
+                    zip(
+                        map(lambda x: x or [""], tiers_assigned.values()),
+                        [[SEPARATING_LINE]] * (len(choices_votes) * 2),
+                    ),
+                    (),
+                )
+            )
+        ][:-1]
+        log.debug(f"Columns: {columns}")
 
-            if not tier_items:  # No items in this tier
-                data_to_tabulate.append([tier_color, "No choice belongs in this tier :(", "-"])
-            else:
-                for item in tier_items:
-                    votes = choices_votes[item]
-                    score = f"{votes[0]}/{votes[1]}"  # Format score as Upvotes/Downvotes
-                    data_to_tabulate.append([tier_color, EightBitANSI.paint_white(item, underline=True), score])
+        indices = [""] * len(columns)
+        current_index = 0
+        for i in range(len(tiers)):
+            try:
+                next_sep_index = columns.index(SEPARATING_LINE, current_index)
+            except ValueError:
+                next_sep_index = len(columns)
+            mid_index = (current_index + next_sep_index) // 2
 
-        # Add headers and build the table with only three columns
+            indices[mid_index] = tier_colors[tiers[i]]()
+            current_index = next_sep_index + 1
+
+        log.debug(f"Indices: {indices}")
+
+        data_to_tabulate = [
+            (
+                [
+                    index,
+                    EightBitANSI.paint_white("No choice belongs in this tier :("),
+                    EightBitANSI.paint_white("-"),
+                    EightBitANSI.paint_white("-"),
+                ]
+                if col == ""
+                else (
+                    [col, col, col, col]
+                    if col == SEPARATING_LINE
+                    else [
+                        index,
+                        EightBitANSI.paint_white(col, underline=True),
+                        # + f"\n{'-'*len(col)}\n",
+                        EightBitANSI.paint_white(
+                            f"{choices_votes[col][0]}\\{choices_votes[col][1]}"
+                        )
+                        + "\n",
+                    ]
+                )
+            )
+            for index, col in zip(indices, columns)
+        ]
+        # log.debug(f"Data to tabulate: {data_to_tabulate}")
+
         tabulated = tabulate(
             data_to_tabulate,
-            headers=["", "Movie Title", "Score"],  # Adjusted headers for three columns
-            tablefmt="simple_outline",  # Keeping the simple_outline format
-            maxheadercolwidths=[None, 18, None],  # Adjusted for three columns
-            maxcolwidths=[None, 18, None],  # Adjusted for three columns
-            showindex=False  # Ensures no row numbers are shown
+            headers=["", "Choices", "Up\Down\nvotes"],
+            # showindex=indices,
+            tablefmt="simple_outline",
+            maxheadercolwidths=[None, 18, None, None],
+            maxcolwidths=[None, 18, None, None],
         )
 
-        # Set the embed description
         embed.description = f"Created By: <@{self.creator}>\n" + cf.box(
             tabulated, lang="ansi"
         )
