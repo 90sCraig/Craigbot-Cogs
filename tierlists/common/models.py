@@ -138,7 +138,7 @@ class Category(Base):
 
         tabulated = tabulate(
             data_to_tabulate,
-            headers=["Tier", "Choices", "Upvotes", "Downvotes"],  # Simplified headers
+            headers=["", "Choices", "Up/Down"],  # Simplified headers
             tablefmt="simple_outline",
             maxheadercolwidths=[None, 15, None, None],
             maxcolwidths=[None, 15, None, None],
