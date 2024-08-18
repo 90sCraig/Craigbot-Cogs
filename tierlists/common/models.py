@@ -150,8 +150,11 @@ class Category(Base):
         )
 
         embed.description = f"Created By: <@{self.creator}>\n" + cf.inline(
-            tabulated, lang="ansi"
+            tabulated"
         )
+        #embed.description = f"Created By: <@{self.creator}>\n" + cf.inline(
+        #    tabulated, lang="ansi"
+        #)
         return embed
 
 
