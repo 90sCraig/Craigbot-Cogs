@@ -149,9 +149,7 @@ class Category(Base):
             maxcolwidths=[None, 18, None],
         )
 
-        embed.description = f"Created By: <@{self.creator}>\n" + cf.inline(
-            tabulated"
-        )
+        embed.description = f"Created By: <@{self.creator}>\n" + cf.inline(tabulated)
         #embed.description = f"Created By: <@{self.creator}>\n" + cf.inline(
         #    tabulated, lang="ansi"
         #)
