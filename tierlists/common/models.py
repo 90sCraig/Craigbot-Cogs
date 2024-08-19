@@ -117,7 +117,7 @@ class Category(Base):
             (
                 (
                     index,
-                    EightBitANSI.paint_white("Nothing yet"),
+                    EightBitANSI.paint_white("No choice belongs in this tier :("),
                     EightBitANSI.paint_white("-"),
                 )
                 if col == ""
@@ -141,7 +141,7 @@ class Category(Base):
 
         tabulated = tabulate(
             data_to_tabulate,
-            headers=["", "Choices", "Score"],
+            headers=["", "Choices", "Up\Down\nvotes"],
             # showindex=indices,
             tablefmt="simple_outline",
             maxheadercolwidths=[None, 18, None],
