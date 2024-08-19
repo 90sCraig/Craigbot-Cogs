@@ -144,8 +144,8 @@ class Category(Base):
             headers=["", "Choices", "Up\Down\nvotes"],
             # showindex=indices,
             tablefmt="simple_outline",
-            maxheadercolwidths=[None, 18, None],
-            maxcolwidths=[None, 18, None],
+            maxheadercolwidths=[None, 18, 5],
+            maxcolwidths=[None, 18, 5],
         )
 
         embed.description = f"Created By: <@{self.creator}>\n" + cf.box(
