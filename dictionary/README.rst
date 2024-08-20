@@ -71,4 +71,4 @@ Changelog
 Credit  
 ------
 
-This cog is a fork of the original Dictionary cog by [AAA3A-AAA3A](https://github.com/AAA3A-AAA3A). Special thanks to Kreusada for the Python code to automatically generate this documentation!
+This cog is a fork of the original Dictionary cog by [AAA3A-AAA3A](https://github.com/AAA3A-AAA3A).
