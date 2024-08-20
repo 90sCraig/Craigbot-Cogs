@@ -1,38 +1,36 @@
 .. _dictionary:
-==========
-Dictionary
+==========  
+Dictionary  
 ==========
 
-This is the cog guide for the 'Dictionary' cog. This guide contains the collection of commands which you can use in the cog.
-Through this guide, ``[p]`` will always represent your prefix. Replace ``[p]`` with your own prefix when you use these commands in Discord.
+This is the cog guide for the 'Dictionary' cog. This guide contains the collection of commands which you can use in the cog. Through this guide, ``[p]`` will always represent your prefix. Replace ``[p]`` with your own prefix when you use these commands in Discord.
 
 .. note::
 
     Ensure that you are up to date by running ``[p]cog update dictionary``.
     If there is something missing, or something that needs improving in this documentation, feel free to create an issue `here <https://github.com/AAA3A-AAA3A/AAA3A-cogs/issues>`_.
-    This documentation is auto-generated everytime this cog receives an update.
+    This documentation is auto-generated every time this cog receives an update.
 
 --------------
-About this cog
+About this cog  
 --------------
 
-A cog to search an english term/word in the dictionary! Synonyms, antonyms, phonetics (with audio)...
+A cog to search an English term/word in the dictionary! Synonyms, antonyms, phonetics (with audio)...
 
 --------
-Commands
+Commands  
 --------
 
-Here are all the commands included in this cog (1):
+Here are all the commands included in this cog:
 
 * ``[p]dictionary <query>``
- Search a word in the english dictionnary.
+  Search a word in the English dictionary.
 
 ------------
-Installation
+Installation  
 ------------
 
-If you haven't added my repo before, lets add it first. We'll call it
-"AAA3A-cogs" here.
+If you haven't added the original repository before, let's add it first. We'll call it "AAA3A-cogs" here.
 
 .. code-block:: ini
 
@@ -51,15 +49,26 @@ Once it's installed, it is not loaded by default. Load it by running the followi
     [p]load dictionary
 
 ---------------
-Further Support
+Further Support  
 ---------------
 
-Check out my docs `here <https://aaa3a-cogs.readthedocs.io/en/latest/>`_.
-Mention me in the #support_other-cogs in the `cog support server <https://discord.gg/GET4DVk>`_ if you need any help.
-Additionally, feel free to open an issue or pull request to this repo.
+Check out the original docs `here <https://aaa3a-cogs.readthedocs.io/en/latest/>`_.
+Mention the original author in the #support_other-cogs channel in the `cog support server <https://discord.gg/GET4DVk>`_ if you need any help.
+Additionally, feel free to open an issue or pull request to the original repo.
+
+---------
+Changelog  
+---------
+
+**Version 1.0.1**
+- Added functionality to handle multi-word queries.
+- Improved synonym and antonym matching.
+
+**Version 1.0.0**
+- Initial release of the Dictionary cog.
 
 ------
-Credit
+Credit  
 ------
 
-Thanks to Kreusada for the Python code to automatically generate this documentation!
+This cog is a fork of the original Dictionary cog by [AAA3A-AAA3A](https://github.com/AAA3A-AAA3A). Special thanks to Kreusada for the Python code to automatically generate this documentation!
