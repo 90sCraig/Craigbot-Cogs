@@ -31,8 +31,7 @@ Here are some of the cogs available in this repository:
 - **MovieDB**: Provides commands to interact with The Movie Database (TMDb), allowing users to search for movies, TV shows, and more.
 - **Tierlists**: A cog for users to vote on items in a list, which are then ranked by tiers divided by percentiles based on up/down votes.
 - **Dictionary**: Provides dictionary and thesaurus functionalities, allowing users to look up word definitions, synonyms, and antonyms.
-
-*Add descriptions for other cogs as needed.*
+- **Giveaways**: Manage and run giveaways on your Discord server. Features include customizable giveaway duration, participant requirements, and automatic winner selection.
 
 ## Contact
 
@@ -48,6 +47,7 @@ This repository wouldn't be possible without the work of the original authors. S
 - [owocado](https://github.com/owocado) for the original [MovieDB cog](https://github.com/owocado/MovieDB-cog).
 - [i-am-zaidali](https://github.com/i-am-zaidali) for the original [Tierlists cog](https://github.com/i-am-zaidali/bounty-cogs/tree/main).
 - [AAA3A-AAA3A](https://github.com/AAA3A-AAA3A) for the original [Dictionary cog](https://github.com/AAA3A-AAA3A/AAA3A-cogs).
+- [flaree](https://github.com/flaree) for the original [Giveaways cog](https://github.com/flaree/flare-cogs).
 
 ## License
 
