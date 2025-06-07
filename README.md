@@ -32,6 +32,7 @@ Here are some of the cogs available in this repository:
 - **Tierlists**: A cog for users to vote on items in a list, which are then ranked by tiers divided by percentiles based on up/down votes.
 - **Dictionary**: Provides dictionary and thesaurus functionalities, allowing users to look up word definitions, synonyms, and antonyms.
 - **Giveaways**: Manage and run giveaways on your Discord server. Features include customizable giveaway duration, participant requirements, and automatic winner selection.
+- **Quote**: Create an image from a replied message showing the text and the author's avatar.
 
 ## Documentation
 
@@ -41,6 +42,7 @@ Learn more about each cog in their respective guides:
 - [Tierlists](./tierlists/README.md)
 - [Dictionary](./dictionary/README.rst)
 - [Giveaways](./giveaways/README.md)
+- [Quote](./quote/README.md)
 
 ## Contact
 
