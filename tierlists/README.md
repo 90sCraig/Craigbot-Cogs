@@ -11,6 +11,21 @@ This is the cog guide for the 'TierLists' cog. This guide contains the collectio
 
 A cog to manage tier lists within your Discord server. Users can vote on items in various categories, and the items are ranked by tiers divided by percentiles based on up/down votes. This cog is ideal for creating community-driven rankings, such as favorite movies, games, or anything else that can be categorized.
 
+## Quick Start
+
+Below is a short example showing how to create a simple tier list. This assumes
+you already have a channel where the voting message will be posted.
+
+```bash
+[p]tierlistset category create Movies #tierlists "Top movies of the 90s"
+[p]tierlistset category option add Movies "The Matrix"
+[p]tierlistset category option add Movies "Jurassic Park"
+[p]tierlistset category updatemessage Movies
+```
+
+Once created, members can vote on each option to help determine the final tier
+ranking.
+
 ## Commands
 
 Here are all the commands included in this cog:
