@@ -33,6 +33,15 @@ Here are some of the cogs available in this repository:
 - **Dictionary**: Provides dictionary and thesaurus functionalities, allowing users to look up word definitions, synonyms, and antonyms.
 - **Giveaways**: Manage and run giveaways on your Discord server. Features include customizable giveaway duration, participant requirements, and automatic winner selection.
 
+## Documentation
+
+Learn more about each cog in their respective guides:
+
+- [MovieDB](./moviedb/README.md)
+- [Tierlists](./tierlists/README.md)
+- [Dictionary](./dictionary/README.rst)
+- [Giveaways](./giveaways/README.md)
+
 ## Contact
 
 If you encounter any issues, bugs, or have suggestions for improvements, feel free to reach out:
