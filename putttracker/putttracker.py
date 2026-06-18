@@ -213,6 +213,30 @@ class PuttTracker(commands.Cog):
         except discord.HTTPException:
             pass
 
+        # Reply to a newly recorded score with that day's updated leaderboard.
+        if not duplicate:
+            lines = self._day_lines(message.guild, weeks, day_key)
+            await self._reply_board(
+                message, f"⛳ Day #{day_num} Leaderboard", lines
+            )
+
+    async def _reply_board(self, message: discord.Message, title: str, lines: list):
+        """Reply to ``message`` with a leaderboard embed (text fallback)."""
+        if not lines:
+            return
+        body = "\n".join(lines)
+        perms = message.channel.permissions_for(message.guild.me)
+        try:
+            if perms.embed_links:
+                embed = discord.Embed(
+                    title=title, description=body, color=discord.Color.gold()
+                )
+                await message.reply(embed=embed, mention_author=False)
+            else:
+                await message.reply(f"**{title}**\n{body}", mention_author=False)
+        except discord.HTTPException:
+            pass
+
     # ── Helpers ───────────────────────────────────────────────────────
 
     def _rank_rows(self, guild, totals: dict) -> list:
@@ -249,6 +273,32 @@ class PuttTracker(commands.Cog):
     def _build_leaderboard(self, ctx, totals: dict) -> list:
         """Convenience: rank + format a leaderboard for a command context."""
         return self._leaderboard_lines(self._rank_rows(ctx.guild, totals))
+
+    def _day_lines(self, guild, weeks: dict, day_key: str) -> list:
+        """Build the single-day leaderboard lines for ``day_key``.
+
+        Sorted by relative to par (lowest = best), then strokes.
+        """
+        rows = []  # (name, strokes, par, relative)
+        for week_data in weeks.values():
+            for uid, entry in week_data.items():
+                score = entry["scores"].get(day_key)
+                if score is None:
+                    continue
+                member = guild.get_member(int(uid))
+                name = member.display_name if member else f"User {uid}"
+                rows.append(
+                    (name, score["strokes"], score["par"], score["relative"])
+                )
+
+        rows.sort(key=lambda r: (r[3], r[1]))
+        lines = []
+        for i, (name, strokes, par, relative) in enumerate(rows):
+            prefix = MEDALS[i] if i < len(MEDALS) else f"`{i + 1}.`"
+            lines.append(
+                f"{prefix} **{name}** · {strokes}/{par} · {_fmt_rel(relative)}"
+            )
+        return lines
 
     # ── Commands ──────────────────────────────────────────────────────
 
@@ -311,31 +361,12 @@ class PuttTracker(commands.Cog):
             return
 
         target_day = max(all_days) - offset
-        day_key = str(target_day)
-
-        rows = []  # (name, strokes, par, relative)
-        for week_data in weeks.values():
-            for uid, entry in week_data.items():
-                score = entry["scores"].get(day_key)
-                if score is None:
-                    continue
-                member = ctx.guild.get_member(int(uid))
-                name = member.display_name if member else f"User {uid}"
-                rows.append((name, score["strokes"], score["par"], score["relative"]))
-
-        if not rows:
+        lines = self._day_lines(ctx.guild, weeks, str(target_day))
+        if not lines:
             await ctx.send(
                 f"No scores recorded for **{label.lower()}** (Day #{target_day})."
             )
             return
-
-        rows.sort(key=lambda r: (r[3], r[1]))  # relative, then strokes
-        lines = []
-        for i, (name, strokes, par, relative) in enumerate(rows):
-            prefix = MEDALS[i] if i < len(MEDALS) else f"`{i + 1}.`"
-            lines.append(
-                f"{prefix} **{name}** · {strokes}/{par} · {_fmt_rel(relative)}"
-            )
         await self._send_embed(
             ctx, f"⛳ {label}'s Leaderboard — Day #{target_day}", lines
         )

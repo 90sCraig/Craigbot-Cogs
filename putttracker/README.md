@@ -10,7 +10,7 @@ This is the cog guide for the 'PuttTracker' cog. This guide contains the collect
 
 Automatically tracks [putt.day](https://putt.day) scores posted in your server and maintains **daily**, **weekly**, and **all-time** leaderboards.
 
-When a member posts their daily putt.day result, the bot detects it, records the score, and reacts with ⛳ to confirm it was logged. No commands are needed to record a score — just paste the result. Leaderboards are ranked by **average relative to par** (lower is better).
+When a member posts their daily putt.day result, the bot detects it, records the score, reacts with ⛳ to confirm it was logged, and replies with that day's updated leaderboard. No commands are needed to record a score — just paste the result. Leaderboards are ranked by **average relative to par** (lower is better).
 
 Each day can only be logged **once per member**. If someone posts the same putt.day result again — even in a later week — it is ignored and the bot reacts with 🔁 instead of ⛳, so scores can't be accidentally counted twice.
 
