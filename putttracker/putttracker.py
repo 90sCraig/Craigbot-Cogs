@@ -200,37 +200,48 @@ class PuttTracker(commands.Cog):
             await ctx.send("Use `putt daily` or `putt daily yesterday`.")
             return
 
-        target_date = (datetime.now(timezone.utc) - timedelta(days=offset)).date()
-
-        # Today/yesterday may straddle an ISO-week boundary, so scan all weeks.
+        # The day is taken from the putt.day number in the post (#36), not from
+        # when the message was sent. "Today" is the latest day number recorded.
         weeks = await self.config.guild(ctx.guild).weeks()
-        rows = []  # (name, day_num, strokes, par, relative)
-        for week_data in weeks.values():
-            for uid, entry in week_data.items():
-                for day_key, score in entry["scores"].items():
-                    ts = score.get("timestamp")
-                    if not ts or datetime.fromisoformat(ts).date() != target_date:
-                        continue
-                    member = ctx.guild.get_member(int(uid))
-                    name = member.display_name if member else f"User {uid}"
-                    rows.append(
-                        (name, int(day_key), score["strokes"], score["par"], score["relative"])
-                    )
-
-        if not rows:
-            await ctx.send(f"No scores recorded for **{label.lower()}** ({target_date}).")
+        all_days = {
+            int(day_key)
+            for week_data in weeks.values()
+            for entry in week_data.values()
+            for day_key in entry["scores"]
+        }
+        if not all_days:
+            await ctx.send("No scores recorded yet.")
             return
 
-        rows.sort(key=lambda r: (r[4], r[2]))  # relative, then strokes
-        day_nums = {r[1] for r in rows}
-        day_tag = f" — Day #{next(iter(day_nums))}" if len(day_nums) == 1 else ""
+        target_day = max(all_days) - offset
+        day_key = str(target_day)
+
+        rows = []  # (name, strokes, par, relative)
+        for week_data in weeks.values():
+            for uid, entry in week_data.items():
+                score = entry["scores"].get(day_key)
+                if score is None:
+                    continue
+                member = ctx.guild.get_member(int(uid))
+                name = member.display_name if member else f"User {uid}"
+                rows.append((name, score["strokes"], score["par"], score["relative"]))
+
+        if not rows:
+            await ctx.send(
+                f"No scores recorded for **{label.lower()}** (Day #{target_day})."
+            )
+            return
+
+        rows.sort(key=lambda r: (r[3], r[1]))  # relative, then strokes
         lines = []
-        for i, (name, _day, strokes, par, relative) in enumerate(rows):
+        for i, (name, strokes, par, relative) in enumerate(rows):
             prefix = MEDALS[i] if i < len(MEDALS) else f"`{i + 1}.`"
             lines.append(
                 f"{prefix} **{name}** · {strokes}/{par} · {_fmt_rel(relative)}"
             )
-        await self._send_embed(ctx, f"⛳ {label}'s Leaderboard{day_tag}", lines)
+        await self._send_embed(
+            ctx, f"⛳ {label}'s Leaderboard — Day #{target_day}", lines
+        )
 
     @putt.command(name="overall", aliases=["alltime", "o"])
     async def putt_overall(self, ctx: commands.Context):

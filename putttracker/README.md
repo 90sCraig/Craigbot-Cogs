@@ -40,7 +40,7 @@ Notes:
 - Each member's score for a given day is recorded **once, ever** — reposting the same day (in any week) is ignored, so totals can't be inflated. The bot reacts 🔁 on an ignored repost.
 - Scores are tracked **per server**. Each guild has its own independent leaderboard.
 - Weeks are grouped by ISO week (e.g. `2026-W25`).
-- "Today" / "yesterday" are based on UTC dates.
+- The day a score belongs to comes from the putt.day number in the post (e.g. `#36`), not from when the message was sent. "Today" is the latest day number recorded; "yesterday" is the one before it.
 - Leaderboards are sent as embeds when the bot has the **Embed Links** permission; otherwise it falls back to formatted text automatically.
 
 ## Commands
@@ -55,7 +55,7 @@ Show the help menu for the score tracker.
 ```
 
 ### `putt daily`
-Show today's leaderboard for the day's putt.day puzzle. Pass `yesterday` to see the previous day instead.
+Show the leaderboard for the latest putt.day puzzle (by its `#` day number). Pass `yesterday` to see the day before instead.
 
 **Aliases:** `today`, `d`
 
