@@ -46,7 +46,7 @@ class GiveawayButton(Button):
             await interaction.response.defer()
             try:
                 await giveaway.add_entrant(
-                    interaction.user, bot=self.cog.bot, session=self.cog.session
+                    interaction.user, bot=self.cog.bot, session=self.cog.session, cog=self.cog
                 )
             except GiveawayEnterError as e:
                 await interaction.followup.send(e.message, ephemeral=True)
@@ -55,11 +55,7 @@ class GiveawayButton(Button):
                 log.exception("Error while adding user to giveaway", exc_info=e)
                 return
             except AlreadyEnteredError:
-                await interaction.followup.send(
-                    "You have been removed from the giveaway.", ephemeral=True
-                )
-                await self.update_entrant(giveaway, interaction)
-                await self.update_label(giveaway, interaction)
+                await interaction.followup.send("You are already in the giveaway.", ephemeral=True)
                 return
             await self.update_entrant(giveaway, interaction)
             await interaction.followup.send(
