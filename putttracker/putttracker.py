@@ -28,6 +28,7 @@ SCORE_PATTERN = re.compile(
 )
 
 MEDALS = ("🥇", "🥈", "🥉")
+PUTT_URL = "https://putt.day"
 
 
 def _week_key(dt: datetime) -> str:
@@ -129,8 +130,9 @@ class PuttTracker(commands.Cog):
         if (now.hour, now.minute) < (hour, minute):
             return
         await self.config.guild(guild).last_reminder_date.set(today)
+        text = conf.get("reminder_message") or "🏌️ Time to putt!"
         try:
-            await channel.send(conf.get("reminder_message") or "🏌️ Time to putt!")
+            await channel.send(f"{text}\n{PUTT_URL}")
         except discord.HTTPException:
             pass
 
