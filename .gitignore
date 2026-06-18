@@ -1,0 +1,9 @@
+# Local Claude Code workspace config
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
