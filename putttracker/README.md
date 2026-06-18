@@ -93,6 +93,13 @@ Show your own recorded scores across all weeks, with your total and average.
 [p]putt myscore
 ```
 
+### `putt reset`
+Permanently delete **all** putt.day scores for the current server. Requires the admin role or the **Manage Server** permission, and asks for `yes`/`no` confirmation before deleting.
+
+```
+[p]putt reset
+```
+
 ## Data & privacy
 
 This cog stores Discord user IDs and putt.day scores (strokes, par, relative to par) per server. No other personal data is collected. A user's data is automatically removed when Red's data-deletion request is processed (`[p]mydata` / owner data deletion).

@@ -12,6 +12,7 @@ Install:
   Or drop putttracker/ into your Red cogs directory and [p]load putttracker
 """
 
+import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
@@ -19,6 +20,7 @@ from collections import defaultdict
 import discord
 from redbot.core import commands, Config
 from redbot.core.utils.chat_formatting import pagify
+from redbot.core.utils.predicates import MessagePredicate
 
 SCORE_PATTERN = re.compile(
     r"putt\.day\s+#(\d+)\s+⛳\s+(\d+)/(\d+)\s+([+-]?\d+)",
@@ -292,6 +294,35 @@ class PuttTracker(commands.Cog):
         await self._send_embed(
             ctx, f"⛳ {ctx.author.display_name}'s Scores", all_scores, footer=summary
         )
+
+    @putt.command(name="reset")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def putt_reset(self, ctx: commands.Context):
+        """Delete ALL putt.day scores for this server.
+
+        Requires the admin role or the Manage Server permission.
+        """
+        if not await self.config.guild(ctx.guild).weeks():
+            await ctx.send("There are no putt.day scores to reset.")
+            return
+
+        await ctx.send(
+            "⚠️ This will **permanently delete all** putt.day scores for this "
+            "server. This cannot be undone.\nType `yes` to confirm or `no` to cancel."
+        )
+        pred = MessagePredicate.yes_or_no(ctx)
+        try:
+            await self.bot.wait_for("message", check=pred, timeout=30)
+        except asyncio.TimeoutError:
+            await ctx.send("Reset cancelled — no response.")
+            return
+
+        if not pred.result:
+            await ctx.send("Reset cancelled.")
+            return
+
+        await self.config.guild(ctx.guild).weeks.clear()
+        await ctx.send("✅ All putt.day scores for this server have been reset.")
 
     # ── Output ────────────────────────────────────────────────────────
 
