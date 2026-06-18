@@ -12,7 +12,6 @@ Install:
   Or drop putttracker/ into your Red cogs directory and [p]load putttracker
 """
 
-import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
@@ -21,7 +20,7 @@ import discord
 from discord.ext import tasks
 from redbot.core import commands, Config
 from redbot.core.utils.chat_formatting import pagify
-from redbot.core.utils.predicates import MessagePredicate
+from redbot.core.utils.views import ConfirmView
 
 SCORE_PATTERN = re.compile(
     r"putt\.day\s+#(\d+)\s+⛳\s+(\d+)/(\d+)\s+([+-]?\d+)",
@@ -58,6 +57,7 @@ class PuttTracker(commands.Cog):
         # (member names can only be resolved within the guild they belong to).
         self.config.register_guild(
             weeks={},
+            auto_board=True,              # reply with the day board on a new score
             announce_channel=None,        # channel id for reminders/announcements
             daily_reminder=False,         # post a "play today" reminder
             reminder_time="12:00",        # HH:MM in UTC
@@ -214,7 +214,7 @@ class PuttTracker(commands.Cog):
             pass
 
         # Reply to a newly recorded score with that day's updated leaderboard.
-        if not duplicate:
+        if not duplicate and await self.config.guild(message.guild).auto_board():
             lines = self._day_lines(message.guild, weeks, day_key)
             await self._reply_board(
                 message, f"⛳ Day #{day_num} Leaderboard", lines
@@ -432,18 +432,14 @@ class PuttTracker(commands.Cog):
             await ctx.send("There are no putt.day scores to reset.")
             return
 
-        await ctx.send(
+        view = ConfirmView(ctx.author, timeout=30, disable_buttons=True)
+        view.message = await ctx.send(
             "⚠️ This will **permanently delete all** putt.day scores for this "
-            "server. This cannot be undone.\nType `yes` to confirm or `no` to cancel."
+            "server. This cannot be undone.",
+            view=view,
         )
-        pred = MessagePredicate.yes_or_no(ctx)
-        try:
-            await self.bot.wait_for("message", check=pred, timeout=30)
-        except asyncio.TimeoutError:
-            await ctx.send("Reset cancelled — no response.")
-            return
-
-        if not pred.result:
+        await view.wait()
+        if not view.result:
             await ctx.send("Reset cancelled.")
             return
 
@@ -600,6 +596,15 @@ class PuttTracker(commands.Cog):
         await self.config.guild(ctx.guild).reminder_message.set(text)
         await ctx.send("Reminder message updated.")
 
+    @putt_set.command(name="autoboard")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def set_autoboard(self, ctx: commands.Context, on_off: bool):
+        """Toggle replying with the day's leaderboard on each new score."""
+        await self.config.guild(ctx.guild).auto_board.set(on_off)
+        await ctx.send(
+            f"Auto leaderboard reply {'enabled' if on_off else 'disabled'}."
+        )
+
     @putt_set.command(name="weekly")
     @commands.admin_or_permissions(manage_guild=True)
     async def set_weekly(self, ctx: commands.Context, on_off: bool):
@@ -621,6 +626,7 @@ class PuttTracker(commands.Cog):
             else None
         )
         lines = [
+            f"**Auto leaderboard reply:** {'on' if conf['auto_board'] else 'off'}",
             f"**Channel:** {channel.mention if channel else 'not set'}",
             f"**Daily reminder:** {'on' if conf['daily_reminder'] else 'off'}",
             f"**Reminder time:** {conf['reminder_time']} UTC",
