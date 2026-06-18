@@ -46,6 +46,17 @@ def _fmt_rel(value: int) -> str:
     return f"{value:+d}"
 
 
+def _parse_hhmm(value: str):
+    """Parse ``HH:MM`` (24-hour) into ``(hour, minute)`` or ``None`` if invalid."""
+    try:
+        hour, minute = (int(p) for p in value.split(":"))
+    except (ValueError, AttributeError):
+        return None
+    if 0 <= hour < 24 and 0 <= minute < 60:
+        return hour, minute
+    return None
+
+
 class PuttTracker(commands.Cog):
     """Track putt.day scores with weekly and overall leaderboards."""
 
@@ -64,6 +75,7 @@ class PuttTracker(commands.Cog):
             reminder_time="12:00",        # HH:MM in UTC
             reminder_message="🏌️ A new putt.day is live — post your score!",
             weekly_announce=False,        # announce last week's winner
+            weekly_time="09:00",          # HH:MM in UTC, on/after week rollover
             last_reminder_date=None,      # ISO date string of last reminder sent
             last_weekly_week=None,        # ISO week key already announced
         )
@@ -123,11 +135,8 @@ class PuttTracker(commands.Cog):
         today = now.date().isoformat()
         if conf.get("last_reminder_date") == today:
             return
-        try:
-            hour, minute = (int(p) for p in conf["reminder_time"].split(":"))
-        except (ValueError, KeyError):
-            return
-        if (now.hour, now.minute) < (hour, minute):
+        hhmm = _parse_hhmm(conf.get("reminder_time", ""))
+        if hhmm is None or (now.hour, now.minute) < hhmm:
             return
         await self.config.guild(guild).last_reminder_date.set(today)
         text = conf.get("reminder_message") or "🏌️ Time to putt!"
@@ -140,6 +149,12 @@ class PuttTracker(commands.Cog):
         """Announce last week's winner once, after the week rolls over."""
         last_week_key = _week_key(now - timedelta(weeks=1))
         if conf.get("last_weekly_week") == last_week_key:
+            return
+
+        # Hold until the configured time of day has passed (so it doesn't fire
+        # at 00:00 UTC on the week rollover).
+        hhmm = _parse_hhmm(conf.get("weekly_time", ""))
+        if hhmm is None or (now.hour, now.minute) < hhmm:
             return
 
         week_data = (await self.config.guild(guild).weeks()).get(last_week_key, {})
@@ -581,15 +596,29 @@ class PuttTracker(commands.Cog):
     @commands.admin_or_permissions(manage_guild=True)
     async def set_time(self, ctx: commands.Context, time: str):
         """Set the daily reminder time as HH:MM in 24-hour UTC (e.g. `13:30`)."""
-        try:
-            hour, minute = (int(p) for p in time.split(":"))
-            if not (0 <= hour < 24 and 0 <= minute < 60):
-                raise ValueError
-        except ValueError:
+        hhmm = _parse_hhmm(time)
+        if hhmm is None:
             await ctx.send("Please give a time as `HH:MM` in 24-hour UTC, e.g. `13:30`.")
             return
+        hour, minute = hhmm
         await self.config.guild(ctx.guild).reminder_time.set(f"{hour:02d}:{minute:02d}")
         await ctx.send(f"Daily reminder time set to {hour:02d}:{minute:02d} UTC.")
+
+    @putt_set.command(name="weeklytime")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def set_weeklytime(self, ctx: commands.Context, time: str):
+        """Set the weekly announcement time as HH:MM in 24-hour UTC (e.g. `09:00`).
+
+        The announcement still posts on the first day of a new week (Monday),
+        but at or after this time instead of at midnight UTC.
+        """
+        hhmm = _parse_hhmm(time)
+        if hhmm is None:
+            await ctx.send("Please give a time as `HH:MM` in 24-hour UTC, e.g. `09:00`.")
+            return
+        hour, minute = hhmm
+        await self.config.guild(ctx.guild).weekly_time.set(f"{hour:02d}:{minute:02d}")
+        await ctx.send(f"Weekly announcement time set to {hour:02d}:{minute:02d} UTC.")
 
     @putt_set.command(name="message")
     @commands.admin_or_permissions(manage_guild=True)
@@ -634,6 +663,7 @@ class PuttTracker(commands.Cog):
             f"**Reminder time:** {conf['reminder_time']} UTC",
             f"**Reminder message:** {conf['reminder_message']}",
             f"**Weekly announce:** {'on' if conf['weekly_announce'] else 'off'}",
+            f"**Weekly time:** {conf['weekly_time']} UTC",
         ]
         await self._send_embed(ctx, "⛳ PuttTracker Settings", lines)
 

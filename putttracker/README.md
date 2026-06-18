@@ -133,13 +133,14 @@ PuttTracker can post a daily reminder to play and announce last week's winner. A
 [p]putt set time 13:30             # reminder time, 24-hour UTC
 [p]putt set message Time to putt!  # customise the reminder text
 [p]putt set weekly on              # announce last week's winner when a new week starts
+[p]putt set weeklytime 09:00       # weekly announcement time, 24-hour UTC
 [p]putt set show                   # view current settings
 ```
 
 Notes:
 - Times are in **UTC**. The daily reminder fires once per day at or after the set time.
 - The daily reminder automatically includes a link to <https://putt.day> after your message text.
-- The weekly announcement posts once when the ISO week rolls over, showing the previous week's leaderboard.
+- The weekly announcement posts once at the start of a new ISO week (Monday), at or after the configured weekly time, showing the previous week's leaderboard.
 - If a feature is enabled without a channel set, nothing is posted until you set one.
 
 ## Data & privacy
