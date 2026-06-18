@@ -1,12 +1,11 @@
-from AAA3A_utils import Cog, CogsUtils  # isort:skip
-from redbot.core import commands  # isort:skip
-from redbot.core.bot import Red  # isort:skip
-from redbot.core.i18n import Translator, cog_i18n  # isort:skip
-import typing  # isort:skip
-
 from urllib.parse import quote_plus
 
 import aiohttp
+
+from AAA3A_utils import Cog
+from redbot.core import app_commands, commands
+from redbot.core.bot import Red
+from redbot.core.i18n import Translator, cog_i18n
 from redbot.core.utils.chat_formatting import humanize_list
 
 from .types import Word
@@ -25,8 +24,8 @@ class Dictionary(Cog):
     def __init__(self, bot: Red) -> None:
         super().__init__(bot=bot)
 
-        self._session: aiohttp.ClientSession = None
-        self.cache: typing.Dict[str, Word] = {}
+        self._session: aiohttp.ClientSession | None = None
+        self.cache: dict[str, Word] = {}
 
     async def cog_load(self) -> None:
         await super().cog_load()
@@ -45,8 +44,7 @@ class Dictionary(Cog):
         if "title" in json_content:
             if json_content["title"] == "No Definitions Found":
                 return None
-            else:
-                raise commands.UserFeedbackCheckFailure(json_content["title"])
+            raise commands.UserFeedbackCheckFailure(json_content["title"])
         json_content = json_content[0]
         word = Word(
             url=url,
@@ -79,6 +77,7 @@ class Dictionary(Cog):
 
     @commands.bot_has_permissions(embed_links=True)
     @commands.hybrid_command(aliases=["define"])
+    @app_commands.allowed_installs(guilds=True, users=True)
     async def dictionary(self, ctx: commands.Context, query: str) -> None:
         """Search a word in the english dictionnary."""
         word = await self.get_word(query)
@@ -88,7 +87,8 @@ class Dictionary(Cog):
 
     @commands.Cog.listener()
     async def on_assistant_cog_add(
-        self, assistant_cog: typing.Optional[commands.Cog] = None
+        self,
+        assistant_cog: commands.Cog | None = None,
     ) -> None:  # Vert's Assistant integration/third party.
         if assistant_cog is None:
             return self.get_word_in_dictionary_for_assistant
@@ -107,6 +107,7 @@ class Dictionary(Cog):
             },
         }
         await assistant_cog.register_function(cog_name=self.qualified_name, schema=schema)
+        return None
 
     async def get_word_in_dictionary_for_assistant(self, query: str, *args, **kwargs):
         word = await self.get_word(query)
@@ -129,10 +130,11 @@ class Dictionary(Cog):
                         else ""
                     )
                     for n, definition in enumerate(word.meanings[meaning], start=1)
-                ]
+                ],
             )
             data = {
                 "Word": word.word,
                 "Meanings": meanings,
             }
             return [f"{key}: {value}\n" for key, value in data.items() if value is not None]
+        return None
