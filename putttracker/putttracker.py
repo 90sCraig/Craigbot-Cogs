@@ -22,8 +22,14 @@ from redbot.core import commands, Config
 from redbot.core.utils.chat_formatting import pagify
 from redbot.core.utils.views import ConfirmView
 
+# Matches the putt.day share line, e.g. "putt.day #36 ⛳ 20/6 +14" or
+# "putt.day #37 ⛳ 10/9 Bogey". Only the day number and strokes/par are
+# captured; relative-to-par is derived (strokes - par), because putt.day shows
+# a golf term (Par/Bogey/Birdie…) instead of a number for small scores. The
+# bit between the day number and strokes/par (a flag emoji + spaces) is skipped
+# so a different glyph can't break detection.
 SCORE_PATTERN = re.compile(
-    r"putt\.day\s+#(\d+)\s+⛳\s+(\d+)/(\d+)\s+([+-]?\d+)",
+    r"putt\.day\s+#(\d+)[^\d\n]*?(\d+)\s*/\s*(\d+)",
     re.IGNORECASE,
 )
 
@@ -194,7 +200,10 @@ class PuttTracker(commands.Cog):
         if not match:
             return
 
-        day_num, strokes, par, relative = (int(g) for g in match.groups())
+        day_num = int(match.group(1))
+        strokes = int(match.group(2))
+        par = int(match.group(3))
+        relative = strokes - par  # always exact; matches putt.day's term/number
 
         now = datetime.now(timezone.utc)
         iso_week = _week_key(now)

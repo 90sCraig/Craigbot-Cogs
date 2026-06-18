@@ -24,17 +24,19 @@ Leaderboards are shown as clean Discord embeds, for example:
 
 ### How scores are detected
 
-The bot looks for the standard putt.day share format anywhere in a message:
+The bot looks for the putt.day share line anywhere in a message:
 
 ```
 putt.day #36 ⛳ 20/6 +14
+putt.day #37 ⛳ 10/9 Bogey
 ```
 
 | Part      | Meaning                      | Example |
 | --------- | ---------------------------- | ------- |
 | `#36`     | putt.day day number          | 36      |
 | `20/6`    | strokes / par                | 20 / 6  |
-| `+14`     | score relative to par        | +14     |
+
+Only the day number and **strokes/par** are read. The score relative to par is computed as `strokes − par`, so it works whether putt.day shows a number (`+14`) or a golf term (`Par`, `Bogey`, `Birdie`, …). The flag glyph between the day number and the score is ignored, so a different emoji won't break detection.
 
 Notes:
 - Each member's score for a given day is recorded **once, ever** — reposting the same day (in any week) is ignored, so totals can't be inflated. The bot reacts 🔁 on an ignored repost.
