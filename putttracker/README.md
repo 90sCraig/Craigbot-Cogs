@@ -12,6 +12,8 @@ Automatically tracks [putt.day](https://putt.day) scores posted in your server a
 
 When a member posts their daily putt.day result, the bot detects it, records the score, and reacts with ⛳ to confirm it was logged. No commands are needed to record a score — just paste the result. Leaderboards are ranked by **average relative to par** (lower is better).
 
+Each day can only be logged **once per member**. If someone posts the same putt.day result again — even in a later week — it is ignored and the bot reacts with 🔁 instead of ⛳, so scores can't be accidentally counted twice.
+
 Leaderboards are shown as clean Discord embeds, for example:
 
 > ⛳ **Weekly Leaderboard — 2026-W25**
@@ -35,7 +37,7 @@ putt.day #36 ⛳ 20/6 +14
 | `+14`     | score relative to par        | +14     |
 
 Notes:
-- Each member's score for a given day is recorded **once** — reposting the same day is ignored, so totals can't be inflated.
+- Each member's score for a given day is recorded **once, ever** — reposting the same day (in any week) is ignored, so totals can't be inflated. The bot reacts 🔁 on an ignored repost.
 - Scores are tracked **per server**. Each guild has its own independent leaderboard.
 - Weeks are grouped by ISO week (e.g. `2026-W25`).
 - "Today" / "yesterday" are based on UTC dates.

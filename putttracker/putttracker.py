@@ -96,29 +96,31 @@ class PuttTracker(commands.Cog):
         day_key = str(day_num)
 
         async with self.config.guild(message.guild).weeks() as weeks:
-            week = weeks.setdefault(iso_week, {})
-            entry = week.setdefault(
-                uid,
-                {"scores": {}, "total_strokes": 0, "total_par": 0, "rounds": 0},
+            # One score per putt.day day per user — check every week, not just
+            # the current one, so an old day can't be re-submitted later.
+            duplicate = any(
+                day_key in wk.get(uid, {}).get("scores", {})
+                for wk in weeks.values()
             )
+            if not duplicate:
+                week = weeks.setdefault(iso_week, {})
+                entry = week.setdefault(
+                    uid,
+                    {"scores": {}, "total_strokes": 0, "total_par": 0, "rounds": 0},
+                )
+                entry["scores"][day_key] = {
+                    "strokes": strokes,
+                    "par": par,
+                    "relative": relative,
+                    "timestamp": now.isoformat(),
+                }
+                entry["total_strokes"] += strokes
+                entry["total_par"] += par
+                entry["rounds"] += 1
 
-            # Dedupe: if they already posted this day, skip
-            if day_key in entry["scores"]:
-                return
-
-            entry["scores"][day_key] = {
-                "strokes": strokes,
-                "par": par,
-                "relative": relative,
-                "timestamp": now.isoformat(),
-            }
-            entry["total_strokes"] += strokes
-            entry["total_par"] += par
-            entry["rounds"] += 1
-
-        # React to confirm
+        # React to confirm — ⛳ for a new score, 🔁 if it was already logged.
         try:
-            await message.add_reaction("⛳")
+            await message.add_reaction("🔁" if duplicate else "⛳")
         except discord.HTTPException:
             pass
 
