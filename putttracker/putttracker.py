@@ -32,6 +32,11 @@ SCORE_PATTERN = re.compile(
     r"putt\.day\s+#(\d+)[^\d\n]*?(\d+)\s*/\s*(\d+)",
     re.IGNORECASE,
 )
+# putt.day appends "· N restart(s)" when a hole was restarted. We prize
+# no-restart rounds, so restarted scores are flagged with an asterisk.
+RESTART_PATTERN = re.compile(r"(\d+)\s*restarts?\b", re.IGNORECASE)
+RESTART_MARK = "\\*"  # renders as a literal * in Discord markdown
+RESTART_NOTE = "\\* = used a restart"
 
 MEDALS = ("🥇", "🥈", "🥉")
 PUTT_URL = "https://putt.day"
@@ -169,16 +174,8 @@ class PuttTracker(commands.Cog):
         if not week_data:
             return
 
-        totals = {
-            uid: {
-                "rounds": entry["rounds"],
-                "total_rel": sum(s["relative"] for s in entry["scores"].values()),
-            }
-            for uid, entry in week_data.items()
-        }
-        lines = self._leaderboard_lines(
-            self._rank_rows(guild, totals)
-        )
+        totals = self._totals_from_scores(week_data)
+        lines = self._leaderboard_lines(self._rank_rows(guild, totals))
         if not lines:
             return
         embed = discord.Embed(
@@ -204,6 +201,8 @@ class PuttTracker(commands.Cog):
         strokes = int(match.group(2))
         par = int(match.group(3))
         relative = strokes - par  # always exact; matches putt.day's term/number
+        rmatch = RESTART_PATTERN.search(message.content)
+        restarts = int(rmatch.group(1)) if rmatch else 0
 
         now = datetime.now(timezone.utc)
         iso_week = _week_key(now)
@@ -227,6 +226,7 @@ class PuttTracker(commands.Cog):
                     "strokes": strokes,
                     "par": par,
                     "relative": relative,
+                    "restarts": restarts,
                     "timestamp": now.isoformat(),
                 }
                 entry["total_strokes"] += strokes
@@ -265,11 +265,25 @@ class PuttTracker(commands.Cog):
 
     # ── Helpers ───────────────────────────────────────────────────────
 
+    @staticmethod
+    def _totals_from_scores(week_data: dict) -> dict:
+        """Aggregate one week's data into ``{uid: {rounds, total_rel, restarts}}``."""
+        totals = {}
+        for uid, entry in week_data.items():
+            scores = entry["scores"].values()
+            totals[uid] = {
+                "rounds": entry["rounds"],
+                "total_rel": sum(s["relative"] for s in scores),
+                "restarts": sum(s.get("restarts", 0) for s in scores),
+            }
+        return totals
+
     def _rank_rows(self, guild, totals: dict) -> list:
-        """Resolve member names and sort ``{uid: {rounds, total_rel}}``.
+        """Resolve member names and sort ``{uid: {rounds, total_rel, restarts}}``.
 
         Sorted by average relative to par (lowest = best), with total then
-        round count as tie-breakers. Returns ``(name, rounds, total_rel, avg)``.
+        round count as tie-breakers. Returns
+        ``(name, rounds, total_rel, avg, had_restart)``.
         """
         rows = []
         for uid, data in totals.items():
@@ -279,7 +293,9 @@ class PuttTracker(commands.Cog):
             member = guild.get_member(int(uid))
             name = member.display_name if member else f"User {uid}"
             avg_rel = data["total_rel"] / rounds
-            rows.append((name, rounds, data["total_rel"], avg_rel))
+            rows.append(
+                (name, rounds, data["total_rel"], avg_rel, data.get("restarts", 0) > 0)
+            )
 
         rows.sort(key=lambda r: (r[3], r[2], -r[1]))
         return rows
@@ -288,12 +304,17 @@ class PuttTracker(commands.Cog):
     def _leaderboard_lines(rows: list) -> list:
         """Format ranked rows into display lines with medals."""
         lines = []
-        for i, (name, rounds, total_rel, avg_rel) in enumerate(rows):
+        any_restart = False
+        for i, (name, rounds, total_rel, avg_rel, had_restart) in enumerate(rows):
             prefix = MEDALS[i] if i < len(MEDALS) else f"`{i + 1}.`"
+            mark = RESTART_MARK if had_restart else ""
+            any_restart = any_restart or had_restart
             lines.append(
-                f"{prefix} **{name}** · {rounds} round{'s' if rounds != 1 else ''} "
+                f"{prefix} **{name}**{mark} · {rounds} round{'s' if rounds != 1 else ''} "
                 f"· total {_fmt_rel(total_rel)} · avg {avg_rel:+.1f}"
             )
+        if any_restart:
+            lines.append(RESTART_NOTE)
         return lines
 
     def _build_leaderboard(self, ctx, totals: dict) -> list:
@@ -305,7 +326,7 @@ class PuttTracker(commands.Cog):
 
         Sorted by relative to par (lowest = best), then strokes.
         """
-        rows = []  # (name, strokes, par, relative)
+        rows = []  # (name, strokes, par, relative, restarts)
         for week_data in weeks.values():
             for uid, entry in week_data.items():
                 score = entry["scores"].get(day_key)
@@ -314,16 +335,27 @@ class PuttTracker(commands.Cog):
                 member = guild.get_member(int(uid))
                 name = member.display_name if member else f"User {uid}"
                 rows.append(
-                    (name, score["strokes"], score["par"], score["relative"])
+                    (
+                        name,
+                        score["strokes"],
+                        score["par"],
+                        score["relative"],
+                        score.get("restarts", 0),
+                    )
                 )
 
         rows.sort(key=lambda r: (r[3], r[1]))
         lines = []
-        for i, (name, strokes, par, relative) in enumerate(rows):
+        any_restart = False
+        for i, (name, strokes, par, relative, restarts) in enumerate(rows):
             prefix = MEDALS[i] if i < len(MEDALS) else f"`{i + 1}.`"
+            mark = RESTART_MARK if restarts else ""
+            any_restart = any_restart or bool(restarts)
             lines.append(
-                f"{prefix} **{name}** · {strokes}/{par} · {_fmt_rel(relative)}"
+                f"{prefix} **{name}** · {strokes}/{par} · {_fmt_rel(relative)}{mark}"
             )
+        if any_restart:
+            lines.append(RESTART_NOTE)
         return lines
 
     # ── Commands ──────────────────────────────────────────────────────
@@ -348,13 +380,7 @@ class PuttTracker(commands.Cog):
             await ctx.send(f"No scores recorded for week **{iso_week}**.")
             return
 
-        totals = {
-            uid: {
-                "rounds": entry["rounds"],
-                "total_rel": sum(s["relative"] for s in entry["scores"].values()),
-            }
-            for uid, entry in week_data.items()
-        }
+        totals = self._totals_from_scores(week_data)
         lines = self._build_leaderboard(ctx, totals)
         await self._send_embed(ctx, f"⛳ Weekly Leaderboard — {iso_week}", lines)
 
@@ -405,13 +431,13 @@ class PuttTracker(commands.Cog):
             await ctx.send("No scores recorded yet.")
             return
 
-        totals = defaultdict(lambda: {"rounds": 0, "total_rel": 0})
+        totals = defaultdict(lambda: {"rounds": 0, "total_rel": 0, "restarts": 0})
         for week_data in weeks.values():
             for uid, entry in week_data.items():
+                scores = entry["scores"].values()
                 totals[uid]["rounds"] += entry["rounds"]
-                totals[uid]["total_rel"] += sum(
-                    s["relative"] for s in entry["scores"].values()
-                )
+                totals[uid]["total_rel"] += sum(s["relative"] for s in scores)
+                totals[uid]["restarts"] += sum(s.get("restarts", 0) for s in scores)
 
         lines = self._build_leaderboard(ctx, totals)
         await self._send_embed(ctx, "⛳ All-Time Leaderboard", lines)
@@ -425,18 +451,24 @@ class PuttTracker(commands.Cog):
         all_scores = []
         total_rel = 0
         total_rounds = 0
+        any_restart = False
         for entry in (w[uid] for w in weeks.values() if uid in w):
             total_rounds += entry["rounds"]
             for day_key, score in sorted(entry["scores"].items(), key=lambda kv: int(kv[0])):
                 total_rel += score["relative"]
+                restarts = score.get("restarts", 0)
+                mark = RESTART_MARK if restarts else ""
+                any_restart = any_restart or bool(restarts)
                 all_scores.append(
                     f"**Day #{day_key}** · {score['strokes']}/{score['par']} "
-                    f"· {_fmt_rel(score['relative'])}"
+                    f"· {_fmt_rel(score['relative'])}{mark}"
                 )
 
         if not all_scores:
             await ctx.send("No scores recorded for you yet.")
             return
+        if any_restart:
+            all_scores.append(RESTART_NOTE)
 
         avg_rel = total_rel / total_rounds if total_rounds else 0
         summary = (
@@ -483,13 +515,15 @@ class PuttTracker(commands.Cog):
         day: int,
         strokes: int,
         par: int,
+        restarts: int = 0,
     ):
         """Add or correct a member's score for a day (relative is computed).
 
-        Example: `putt addscore @Craig 36 20 6`
+        Optionally pass the number of restarts (defaults to 0).
+        Example: `putt addscore @Craig 36 20 6` or `putt addscore @Craig 37 24 9 1`
         """
-        if day < 1 or strokes < 0 or par < 0:
-            await ctx.send("Day must be ≥ 1 and strokes/par must be ≥ 0.")
+        if day < 1 or strokes < 0 or par < 0 or restarts < 0:
+            await ctx.send("Day must be ≥ 1 and strokes/par/restarts must be ≥ 0.")
             return
 
         relative = strokes - par
@@ -508,7 +542,7 @@ class PuttTracker(commands.Cog):
                 old = existing["scores"][day_key]
                 existing["total_strokes"] += strokes - old["strokes"]
                 existing["total_par"] += par - old["par"]
-                old.update(strokes=strokes, par=par, relative=relative)
+                old.update(strokes=strokes, par=par, relative=relative, restarts=restarts)
                 action = "Updated"
             else:
                 week = weeks.setdefault(_week_key(datetime.now(timezone.utc)), {})
@@ -520,6 +554,7 @@ class PuttTracker(commands.Cog):
                     "strokes": strokes,
                     "par": par,
                     "relative": relative,
+                    "restarts": restarts,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 entry["total_strokes"] += strokes
@@ -527,9 +562,10 @@ class PuttTracker(commands.Cog):
                 entry["rounds"] += 1
                 action = "Added"
 
+        mark = RESTART_MARK if restarts else ""
         await ctx.send(
             f"✅ {action} **{member.display_name}** — Day #{day}: "
-            f"{strokes}/{par} ({_fmt_rel(relative)})."
+            f"{strokes}/{par} ({_fmt_rel(relative)}){mark}."
         )
 
     @putt.command(name="removescore", aliases=["delscore", "rmscore"])

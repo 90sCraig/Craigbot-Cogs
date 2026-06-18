@@ -38,6 +38,8 @@ putt.day #37 ⛳ 10/9 Bogey
 
 Only the day number and **strokes/par** are read. The score relative to par is computed as `strokes − par`, so it works whether putt.day shows a number (`+14`) or a golf term (`Par`, `Bogey`, `Birdie`, …). The flag glyph between the day number and the score is ignored, so a different emoji won't break detection.
 
+**Restarts:** if a post includes a restart count (e.g. `… +15 · 1 restart`), that round is flagged with an asterisk (`*`) wherever it appears, since clean no-restart rounds are the goal. On weekly/all-time boards a player's name is asterisked if any of their counted rounds used a restart. A short `* = used a restart` legend is added when relevant.
+
 Notes:
 - Each member's score for a given day is recorded **once, ever** — reposting the same day (in any week) is ignored, so totals can't be inflated. The bot reacts 🔁 on an ignored repost.
 - Scores are tracked **per server**. Each guild has its own independent leaderboard.
@@ -100,10 +102,11 @@ Show your own recorded scores across all weeks, with your total and average.
 These require the admin role or the **Manage Server** permission.
 
 ### `putt addscore`
-Add or correct a member's score for a day. Relative-to-par is computed automatically (`strokes - par`). If the day already exists for that member it is updated; otherwise it is added.
+Add or correct a member's score for a day. Relative-to-par is computed automatically (`strokes - par`). An optional final number records restarts (defaults to 0). If the day already exists for that member it is updated; otherwise it is added.
 
 ```
-[p]putt addscore @Craig 36 20 6
+[p]putt addscore @Craig 36 20 6      # no restarts
+[p]putt addscore @Craig 37 24 9 1    # 1 restart (flagged with *)
 ```
 
 **Aliases:** `setscore`
