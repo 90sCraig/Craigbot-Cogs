@@ -42,6 +42,16 @@ Show the help menu for the score tracker.
 [p]putt
 ```
 
+### `putt daily`
+Show today's leaderboard for the day's putt.day puzzle. Pass `yesterday` to see the previous day instead.
+
+**Aliases:** `today`, `d`
+
+```
+[p]putt daily            # today
+[p]putt daily yesterday  # the previous day
+```
+
 ### `putt weekly`
 Show the weekly leaderboard. Defaults to the current week. Pass a negative offset to view past weeks.
 

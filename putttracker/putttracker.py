@@ -183,6 +183,53 @@ class PuttTracker(commands.Cog):
         lines = self._build_leaderboard(ctx, totals)
         await self._paginate(ctx, f"⛳ **Weekly Leaderboard — {iso_week}**", lines)
 
+    @putt.command(name="daily", aliases=["today", "d"])
+    async def putt_daily(self, ctx: commands.Context, when: str = "today"):
+        """Show today's leaderboard. Pass `yesterday` for the previous day.
+
+        Examples: `putt daily`, `putt daily yesterday`
+        """
+        when = when.lower()
+        if when in ("today", "t"):
+            offset, label = 0, "Today"
+        elif when in ("yesterday", "y"):
+            offset, label = 1, "Yesterday"
+        else:
+            await ctx.send("Use `putt daily` or `putt daily yesterday`.")
+            return
+
+        target_date = (datetime.now(timezone.utc) - timedelta(days=offset)).date()
+
+        # Today/yesterday may straddle an ISO-week boundary, so scan all weeks.
+        weeks = await self.config.guild(ctx.guild).weeks()
+        rows = []  # (name, day_num, strokes, par, relative)
+        for week_data in weeks.values():
+            for uid, entry in week_data.items():
+                for day_key, score in entry["scores"].items():
+                    ts = score.get("timestamp")
+                    if not ts or datetime.fromisoformat(ts).date() != target_date:
+                        continue
+                    member = ctx.guild.get_member(int(uid))
+                    name = member.display_name if member else f"User {uid}"
+                    rows.append(
+                        (name, int(day_key), score["strokes"], score["par"], score["relative"])
+                    )
+
+        if not rows:
+            await ctx.send(f"No scores recorded for **{label.lower()}** ({target_date}).")
+            return
+
+        rows.sort(key=lambda r: (r[4], r[2]))  # relative, then strokes
+        day_nums = {r[1] for r in rows}
+        day_tag = f" — Day #{next(iter(day_nums))}" if len(day_nums) == 1 else ""
+        lines = []
+        for i, (name, _day, strokes, par, relative) in enumerate(rows):
+            prefix = MEDALS[i] if i < len(MEDALS) else f"{i + 1}."
+            lines.append(
+                f"{prefix} **{name}** — {strokes}/{par} ({_fmt_rel(relative)})"
+            )
+        await self._paginate(ctx, f"⛳ **{label}'s Leaderboard{day_tag}**", lines)
+
     @putt.command(name="overall", aliases=["alltime", "o"])
     async def putt_overall(self, ctx: commands.Context):
         """Show the all-time overall leaderboard."""
