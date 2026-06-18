@@ -33,6 +33,7 @@ Here are some of the cogs available in this repository:
 - **Dictionary**: Provides dictionary and thesaurus functionalities, allowing users to look up word definitions, synonyms, and antonyms.
 - **Giveaways**: Manage and run giveaways on your Discord server. Features include customizable giveaway duration, participant requirements, and automatic winner selection.
 - **Quote**: Create an image from a replied message showing the text and the author's avatar.
+- **PuttTracker**: Automatically tracks putt.day scores posted in your server and maintains weekly and all-time leaderboards.
 
 ## Documentation
 
@@ -43,6 +44,7 @@ Learn more about each cog in their respective guides:
 - [Dictionary](./dictionary/README.rst)
 - [Giveaways](./giveaways/README.md)
 - [Quote](./quote/README.md)
+- [PuttTracker](./putttracker/README.md)
 
 ## Contact
 
