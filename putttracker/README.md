@@ -93,12 +93,52 @@ Show your own recorded scores across all weeks, with your total and average.
 [p]putt myscore
 ```
 
+## Admin commands
+
+These require the admin role or the **Manage Server** permission.
+
+### `putt addscore`
+Add or correct a member's score for a day. Relative-to-par is computed automatically (`strokes - par`). If the day already exists for that member it is updated; otherwise it is added.
+
+```
+[p]putt addscore @Craig 36 20 6
+```
+
+**Aliases:** `setscore`
+
+### `putt removescore`
+Remove a member's score for a specific day (and adjust their totals).
+
+```
+[p]putt removescore @Craig 36
+```
+
+**Aliases:** `delscore`, `rmscore`
+
 ### `putt reset`
-Permanently delete **all** putt.day scores for the current server. Requires the admin role or the **Manage Server** permission, and asks for `yes`/`no` confirmation before deleting.
+Permanently delete **all** putt.day scores for the current server. Asks for `yes`/`no` confirmation before deleting.
 
 ```
 [p]putt reset
 ```
+
+## Reminders & announcements
+
+PuttTracker can post a daily reminder to play and announce last week's winner. All settings are per server and configured under `[p]putt set` (admin / Manage Server only). Set a channel first:
+
+```
+[p]putt set channel #putt-day      # where reminders/announcements are posted
+[p]putt set reminder on            # enable the daily reminder
+[p]putt set time 13:30             # reminder time, 24-hour UTC
+[p]putt set message Time to putt!  # customise the reminder text
+[p]putt set weekly on              # announce last week's winner when a new week starts
+[p]putt set show                   # view current settings
+```
+
+Notes:
+- Times are in **UTC**. The daily reminder fires once per day at or after the set time.
+- The weekly announcement posts once when the ISO week rolls over, showing the previous week's leaderboard.
+- If a feature is enabled without a channel set, nothing is posted until you set one.
 
 ## Data & privacy
 
