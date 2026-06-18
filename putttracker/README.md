@@ -8,9 +8,17 @@ This is the cog guide for the 'PuttTracker' cog. This guide contains the collect
 
 ## About this cog
 
-Automatically tracks [putt.day](https://putt.day) scores posted in your server and maintains **weekly** and **all-time** leaderboards.
+Automatically tracks [putt.day](https://putt.day) scores posted in your server and maintains **daily**, **weekly**, and **all-time** leaderboards.
 
 When a member posts their daily putt.day result, the bot detects it, records the score, and reacts with ⛳ to confirm it was logged. No commands are needed to record a score — just paste the result. Leaderboards are ranked by **average relative to par** (lower is better).
+
+Leaderboards are shown as clean Discord embeds, for example:
+
+> ⛳ **Weekly Leaderboard — 2026-W25**
+> 🥇 **Craig** · 5 rounds · total -3 · avg -0.6
+> 🥈 **Dave** · 5 rounds · total +2 · avg +0.4
+> 🥉 **Sam** · 4 rounds · total +8 · avg +2.0
+> `4.` **Pat** · 3 rounds · total +15 · avg +5.0
 
 ### How scores are detected
 
@@ -30,6 +38,8 @@ Notes:
 - Each member's score for a given day is recorded **once** — reposting the same day is ignored, so totals can't be inflated.
 - Scores are tracked **per server**. Each guild has its own independent leaderboard.
 - Weeks are grouped by ISO week (e.g. `2026-W25`).
+- "Today" / "yesterday" are based on UTC dates.
+- Leaderboards are sent as embeds when the bot has the **Embed Links** permission; otherwise it falls back to formatted text automatically.
 
 ## Commands
 
