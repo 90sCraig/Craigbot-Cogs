@@ -144,10 +144,10 @@ class PuttTracker(commands.Cog):
 
         lines = []
         for i, (name, rounds, total_rel, avg_rel) in enumerate(rows):
-            prefix = MEDALS[i] if i < len(MEDALS) else f"{i + 1}."
+            prefix = MEDALS[i] if i < len(MEDALS) else f"`{i + 1}.`"
             lines.append(
-                f"{prefix} **{name}** — {rounds} round{'s' if rounds != 1 else ''}, "
-                f"total {_fmt_rel(total_rel)}, avg {avg_rel:+.1f}"
+                f"{prefix} **{name}** · {rounds} round{'s' if rounds != 1 else ''} "
+                f"· total {_fmt_rel(total_rel)} · avg {avg_rel:+.1f}"
             )
         return lines
 
@@ -181,7 +181,7 @@ class PuttTracker(commands.Cog):
             for uid, entry in week_data.items()
         }
         lines = self._build_leaderboard(ctx, totals)
-        await self._paginate(ctx, f"⛳ **Weekly Leaderboard — {iso_week}**", lines)
+        await self._send_embed(ctx, f"⛳ Weekly Leaderboard — {iso_week}", lines)
 
     @putt.command(name="daily", aliases=["today", "d"])
     async def putt_daily(self, ctx: commands.Context, when: str = "today"):
@@ -224,11 +224,11 @@ class PuttTracker(commands.Cog):
         day_tag = f" — Day #{next(iter(day_nums))}" if len(day_nums) == 1 else ""
         lines = []
         for i, (name, _day, strokes, par, relative) in enumerate(rows):
-            prefix = MEDALS[i] if i < len(MEDALS) else f"{i + 1}."
+            prefix = MEDALS[i] if i < len(MEDALS) else f"`{i + 1}.`"
             lines.append(
-                f"{prefix} **{name}** — {strokes}/{par} ({_fmt_rel(relative)})"
+                f"{prefix} **{name}** · {strokes}/{par} · {_fmt_rel(relative)}"
             )
-        await self._paginate(ctx, f"⛳ **{label}'s Leaderboard{day_tag}**", lines)
+        await self._send_embed(ctx, f"⛳ {label}'s Leaderboard{day_tag}", lines)
 
     @putt.command(name="overall", aliases=["alltime", "o"])
     async def putt_overall(self, ctx: commands.Context):
@@ -247,7 +247,7 @@ class PuttTracker(commands.Cog):
                 )
 
         lines = self._build_leaderboard(ctx, totals)
-        await self._paginate(ctx, "⛳ **All-Time Leaderboard**", lines)
+        await self._send_embed(ctx, "⛳ All-Time Leaderboard", lines)
 
     @putt.command(name="myscore", aliases=["me", "m"])
     async def putt_myscore(self, ctx: commands.Context):
@@ -263,8 +263,8 @@ class PuttTracker(commands.Cog):
             for day_key, score in sorted(entry["scores"].items(), key=lambda kv: int(kv[0])):
                 total_rel += score["relative"]
                 all_scores.append(
-                    f"  Day #{day_key}: {score['strokes']}/{score['par']} "
-                    f"({_fmt_rel(score['relative'])})"
+                    f"**Day #{day_key}** · {score['strokes']}/{score['par']} "
+                    f"· {_fmt_rel(score['relative'])}"
                 )
 
         if not all_scores:
@@ -273,20 +273,41 @@ class PuttTracker(commands.Cog):
 
         avg_rel = total_rel / total_rounds if total_rounds else 0
         summary = (
-            f"\n**Total:** {total_rounds} rounds, {_fmt_rel(total_rel)} overall, "
-            f"{avg_rel:+.1f} avg"
+            f"Total: {total_rounds} rounds · {_fmt_rel(total_rel)} overall "
+            f"· {avg_rel:+.1f} avg"
         )
-        await self._paginate(
-            ctx, f"⛳ **{ctx.author.display_name}'s Scores**", all_scores, footer=summary
+        await self._send_embed(
+            ctx, f"⛳ {ctx.author.display_name}'s Scores", all_scores, footer=summary
         )
 
     # ── Output ────────────────────────────────────────────────────────
 
-    async def _paginate(self, ctx, title: str, lines: list, footer: str = ""):
-        """Send ``title`` + ``lines`` (+ optional ``footer``), paginated."""
-        body = "\n".join(lines)
-        if footer:
-            body = f"{body}\n{footer}"
-        pages = list(pagify(body, delims=["\n"], page_length=1900)) or [""]
+    async def _send_embed(self, ctx, title: str, lines: list, footer: str = ""):
+        """Render a leaderboard as an embed, falling back to plain text.
+
+        Respects the bot/channel embed setting via ``ctx.embed_requested()``
+        and paginates long results so they stay within Discord limits.
+        """
+        body = "\n".join(lines) if lines else "Nothing to show yet."
+        use_embed = await ctx.embed_requested()
+        page_len = 3900 if use_embed else 1800
+        pages = list(pagify(body, delims=["\n"], page_length=page_len)) or [""]
+        total = len(pages)
+
         for i, page in enumerate(pages):
-            await ctx.send(f"{title}\n{page}" if i == 0 else page)
+            heading = title if total == 1 else f"{title} ({i + 1}/{total})"
+            is_last = i == total - 1
+            if use_embed:
+                embed = discord.Embed(
+                    title=heading,
+                    description=page,
+                    color=await ctx.embed_color(),
+                )
+                if footer and is_last:
+                    embed.set_footer(text=footer)
+                await ctx.send(embed=embed)
+            else:
+                text = f"**{heading}**\n{page}"
+                if footer and is_last:
+                    text += f"\n{footer}"
+                await ctx.send(text)
