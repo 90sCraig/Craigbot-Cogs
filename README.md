@@ -35,6 +35,7 @@ Here are some of the cogs available in this repository:
 - **Quote**: Create an image from a replied message showing the text and the author's avatar.
 - **PuttTracker**: Automatically tracks putt.day scores posted in your server and maintains daily, weekly, and all-time leaderboards, with optional daily reminders and weekly winner announcements.
 - **Community**: Quiet, peer-driven recognition — members star great messages and thank each other, and the bot celebrates it all in a single warm monthly recap. A subtle alternative to grindy leveling systems.
+- **CaseFiles**: Crowdsource the gaps in your tape archive. Serves unidentified tapes to a channel one at a time, collects the community's leads, credits whoever cracks each one, and exports solved cases as an Obsidian-ready file to merge back into your vault.
 
 ## Documentation
 
@@ -47,6 +48,7 @@ Learn more about each cog in their respective guides:
 - [Quote](./quote/README.md)
 - [PuttTracker](./putttracker/README.md)
 - [Community](./community/README.md)
+- [CaseFiles](./casefiles/README.md)
 
 ## Contact
 

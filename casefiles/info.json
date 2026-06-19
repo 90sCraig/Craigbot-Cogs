@@ -1,0 +1,7 @@
+{
+  "name": "CaseFiles",
+  "short": "Crowdsource tape IDs: serve unidentified tapes, collect leads, export solves.",
+  "description": "Built for archive detectives. Feed the bot a batch of unidentified tape images (drag them into an intake channel, add them one by one, or import a JSON manifest) and it serves them to a case channel one at a time. Members reply with leads, a detective confirms the ID, and the bot advances to the next case — banking each solve so you can export an Obsidian-ready file and merge it back into your vault. Decoupled by design: the bot never touches your vault.",
+  "end_user_data_statement": "This cog stores Discord user IDs together with the identification leads (message text) those users post in the case channel, plus a count of cases each user has helped solve. Submitted tape images are stored in the cog's data folder. A user's leads and solve credit are removed on a Red data-deletion request.",
+  "install_msg": "CaseFiles loaded. Set a case channel (`[p]case set channel #cases`) and an intake channel (`[p]case set intake #intake`), drop some tape images into intake, then run `[p]case ingest` and `[p]case start`."
+}
