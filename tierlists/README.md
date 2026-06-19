@@ -1,156 +1,130 @@
 # TierLists
 
-This is the cog guide for the 'TierLists' cog. This guide contains the collection of commands which you can use in the cog. Through this guide, `[p]` will always represent your prefix. Replace `[p]` with your own prefix when you use these commands in Discord.
+This is the cog guide for the 'TierLists' cog. This guide contains the collection of commands which you can use in the cog. Throughout this guide, `[p]` will always represent your prefix. Replace `[p]` with your own prefix when you use these commands in Discord.
 
-> **Note:**  
-> Ensure that you are up to date by running `[p]cog update tierlists`.  
-> If there is something missing, or something that needs improving in this documentation, feel free to create an issue [here](https://github.com/90sCraig/Craigbot-Cogs/issues).  
-> This documentation is auto-generated every time this cog receives an update.
+> **Note:**
+> Ensure that you are up to date by running `[p]cog update tierlists`.
+> If there is something missing, or something that needs improving in this documentation, feel free to create an issue [here](https://github.com/90sCraig/Craigbot-Cogs/issues).
 
 ## About this cog
 
-A cog to manage tier lists within your Discord server. Users can vote on items in various categories, and the items are ranked by tiers divided by percentiles based on up/down votes. This cog is ideal for creating community-driven rankings, such as favorite movies, games, or anything else that can be categorized.
+Create community-driven tier lists in your server. Admins set up a **category** (e.g. "Best Pizza Topping") and add **options** to it. The bot posts a pinned voting message with a dropdown; members upvote or downvote the options, and the bot automatically sorts them into tiers (**S, A, B, C, D, E, F**) based on the percentage of upvotes each one receives. Great for ranking games, movies, foods — anything your community wants to argue about.
+
+## How it works
+
+1. **An admin creates a category** in a channel with `[p]tlset category create`. The bot posts a pinned embed there with a **"Select choice to vote for"** dropdown.
+2. **The admin adds options** to the category with `[p]tlset category option add`. The voting message updates to include them.
+3. **Members vote** by opening the dropdown on the pinned message and picking an option:
+   - A private prompt appears with **Upvote** / **Downvote** buttons.
+   - If they've already voted on that option, they instead get **Change Vote** / **Remove Vote**.
+   - Each member can cast a limited number of upvotes and downvotes per category (default **3** each — configurable).
+4. **The bot ranks the options** into tiers automatically and updates the embed live after every vote. Options are placed by the percentage of upvotes they hold, against the configured percentile thresholds.
+
+> **Permissions:** Setup commands require the **admin** role (set via Red's `[p]set addadminrole`) or, for the settings, the **Manage Server** permission. The bot needs **Send Messages**, **Embed Links**, and **Manage Messages** (to pin the voting message) in the category's channel.
+
+## Quick start
+
+```
+[p]tlset category create pizza #polls Vote for the best pizza topping!
+[p]tlset category option add pizza Pepperoni
+[p]tlset category option add pizza Pineapple
+[p]tlset category option add pizza Mushroom
+```
+
+Members can now vote from the pinned message in `#polls`. Adjust how strict the tiers are with `[p]tlset setpercentiles`, and the per-user vote limits with `[p]tlset setmaxvotes`.
 
 ## Commands
 
-Here are all the commands included in this cog:
+All setup commands live under `[p]tierlistset` (alias `[p]tlset`).
 
 ### `tierlistset`
+The base command for managing tier list settings. **Alias:** `tlset`
 
-- **Description**: The base command for managing tier list settings.
-- **Usage**: `[p]tierlistset` or `[p]tlset`
-- **Aliases**: `tlset`
+#### `tierlistset setpercentiles <tier> <value>`
+Set the minimum upvote percentile required for a tier. **Alias:** `setp`
 
-#### `setpercentiles`
+- `tier` — one of `S`, `A`, `B`, `C`, `D`, `E` (anything below `E` falls into `F`).
+- `value` — the percentile threshold (0–100).
 
-- **Description**: Set the percentile value for a specific tier.
-- **Usage**: `[p]tierlistset setpercentiles <tier> <value>`
-- **Aliases**: `setp`
-- **Parameters**:
-  - `tier`: The tier to set the percentile for (S, A, B, C, D, E).
-  - `value`: The percentile value to assign to the tier.
+Defaults: **S = 90, A = 70, B = 50, C = 30, D = 25, E = 10**.
 
-#### `setmaxvotes`
+```
+[p]tlset setpercentiles S 95
+```
 
-- **Description**: Set the maximum number of votes a user can cast.
-- **Usage**: `[p]tierlistset setmaxvotes <vote_type> <value>`
-- **Aliases**: `setmv`
-- **Parameters**:
-  - `vote_type`: The type of vote to limit (upvotes or downvotes).
-  - `value`: The maximum number of votes allowed per user.
+#### `tierlistset setmaxvotes <vote_type> <value>`
+Set how many votes each member may cast per category. **Alias:** `setmv`
 
-#### `showsettings`
+- `vote_type` — `upvotes` or `downvotes`.
+- `value` — the maximum allowed (default **3** each).
 
-- **Description**: Display the current tier list settings.
-- **Usage**: `[p]tierlistset showsettings`
-- **Aliases**: `ss`, `show`, `settings`
+```
+[p]tlset setmaxvotes upvotes 5
+```
 
-### `category`
+#### `tierlistset showsettings`
+Show the current settings (percentiles, vote limits, and categories). **Aliases:** `ss`, `show`, `settings`
 
-- **Description**: Manage tier list categories.
-- **Usage**: `[p]tierlistset category`
+### Category management — `tierlistset category`
+Manage tier list categories. **Alias:** `cat`
 
-#### `list`
+#### `category list`
+List every category with its choices.
 
-- **Description**: List all categories with their choices.
-- **Usage**: `[p]tierlistset category list`
+#### `category create <name> [channel] [description]`
+Create a category and post its pinned voting message. Defaults to the current channel if none is given. **Aliases:** `add`, `+`, `new`
 
-#### `create`
+```
+[p]tlset category create games #tierlist The best games of all time
+```
 
-- **Description**: Create a new tier list category.
-- **Usage**: `[p]tierlistset category create <name> [channel] [description]`
-- **Aliases**: `add`, `+`, `new`
+#### `category delete <name>`
+Delete a category and remove its voting message. **Aliases:** `remove`, `-`, `del`
 
-#### `delete`
+#### `category updatemessage <name>`
+Re-post or refresh a category's voting message (useful if it was deleted or got out of sync). **Aliases:** `update`, `refresh`
 
-- **Description**: Delete a tier list category.
-- **Usage**: `[p]tierlistset category delete <name>`
-- **Aliases**: `remove`, `-`, `del`
+### Editing a category — `tierlistset category edit`
 
-#### `updatemessage`
+#### `category edit channel <name> <channel>`
+Move a category's voting message to a different channel. **Alias:** `chan`
 
-- **Description**: Update a category's voting message.
-- **Usage**: `[p]tierlistset category updatemessage <name>`
-- **Aliases**: `update`, `refresh`
+#### `category edit description <name> <description>`
+Change a category's description. **Alias:** `desc`
 
-### `edit`
+#### `category edit name <name> <new_name>`
+Rename a category. **Alias:** `rename`
 
-- **Description**: Edit a tier list category.
-- **Usage**: `[p]tierlistset category edit`
+### Managing options — `tierlistset category option`
+Manage the choices inside a category. **Aliases:** `opt`, `options`, `choices`, `choice`
 
-#### `channel`
+#### `category option add <category> <option>`
+Add a votable option to a category. **Aliases:** `+`, `new`
 
-- **Description**: Change the channel for a category's voting message.
-- **Usage**: `[p]tierlistset category edit channel <name> <channel>`
-- **Aliases**: `chan`
+#### `category option remove <category> <option_index>`
+Remove an option by its index. **Aliases:** `del`, `-`
 
-#### `description`
+#### `category option forceadd <category> <option>`
+Add an option even if it looks similar to an existing one (bypasses the duplicate check). **Aliases:** `force`, `addforce`
 
-- **Description**: Edit a category's description.
-- **Usage**: `[p]tierlistset category edit description <name> <description>`
-- **Aliases**: `desc`
-
-#### `name`
-
-- **Description**: Rename a category.
-- **Usage**: `[p]tierlistset category edit name <name> <new_name>`
-- **Aliases**: `rename`
-
-### `option`
-
-- **Description**: Manage options within a category.
-- **Usage**: `[p]tierlistset category option`
-
-#### `add`
-
-- **Description**: Add an option to a category.
-- **Usage**: `[p]tierlistset category option add <category> <option>`
-- **Aliases**: `+`, `new`
-
-#### `remove`
-
-- **Description**: Remove an option from a category.
-- **Usage**: `[p]tierlistset category option remove <category> <option_index>`
-- **Aliases**: `del`, `-`
-
-#### `forceadd`
-
-- **Description**: Force add an option to a category, bypassing similarity checks.
-- **Usage**: `[p]tierlistset category option forceadd <category> <option>`
-- **Aliases**: `force`, `addforce`
-
-#### `clear`
-
-- **Description**: Clear all options from a category.
-- **Usage**: `[p]tierlistset category option clear <category>`
-- **Aliases**: `reset`
+#### `category option clear <category>`
+Remove all options from a category. **Alias:** `reset`
 
 ## Installation
 
-If you haven't added the original repository before, let's add it first. We'll call it "Craigbot-Cogs" here.
+If you haven't added this repository before, let's add it first. We'll call it "Craigbot-Cogs" here.
 
-`[p]repo add Craigbot-Cogs https://github.com/90sCraig/Craigbot-Cogs`
-
-Now, we can install TierLists.
-
-`[p]cog install Craigbot-Cogs tierlists`
-
-Once it's installed, it is not loaded by default. Load it by running the following command:
-`[p]load tierlists`
+```bash
+[p]repo add Craigbot-Cogs https://github.com/90sCraig/Craigbot-Cogs
+[p]cog install Craigbot-Cogs tierlists
+[p]load tierlists
+```
 
 ## Further Support
-
-For additional help, you can reach out via the support channels listed below:
 
 - Join the [Craigbot Support Discord server](https://discord.gg/7ympDwSEqA) for direct assistance.
 - Open an issue or pull request on the [Craigbot-Cogs GitHub repository](https://github.com/90sCraig/Craigbot-Cogs) if you encounter any issues or have suggestions for improvements.
 
-## Changelog
-
-**Version 1.0.0**
-
-- Initial release of the TierLists cog.
-
 ## Credit
 
-This cog is a fork of the original Tierlists cog by [i-am-zaidali](https://github.com/i-am-zaidali). Special thanks to [i-am-zaidali](https://github.com/i-am-zaidali) for the original [Tierlists cog](https://github.com/i-am-zaidali/bounty-cogs/tree/main).
+This cog is a fork of the original [Tierlists cog](https://github.com/i-am-zaidali/bounty-cogs/tree/main) by [i-am-zaidali](https://github.com/i-am-zaidali).

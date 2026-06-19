@@ -34,6 +34,7 @@ Here are some of the cogs available in this repository:
 - **Giveaways**: Manage and run giveaways on your Discord server. Features include customizable giveaway duration, participant requirements, and automatic winner selection.
 - **Quote**: Create an image from a replied message showing the text and the author's avatar.
 - **PuttTracker**: Automatically tracks putt.day scores posted in your server and maintains daily, weekly, and all-time leaderboards, with optional daily reminders and weekly winner announcements.
+- **Community**: Quiet, peer-driven recognition — members star great messages and thank each other, and the bot celebrates it all in a single warm monthly recap. A subtle alternative to grindy leveling systems.
 
 ## Documentation
 
@@ -41,10 +42,11 @@ Learn more about each cog in their respective guides:
 
 - [MovieDB](./moviedb/README.md)
 - [Tierlists](./tierlists/README.md)
-- [Dictionary](./dictionary/README.rst)
+- [Dictionary](./dictionary/README.md)
 - [Giveaways](./giveaways/README.md)
 - [Quote](./quote/README.md)
 - [PuttTracker](./putttracker/README.md)
+- [Community](./community/README.md)
 
 ## Contact
 

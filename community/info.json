@@ -1,0 +1,7 @@
+{
+  "name": "Community",
+  "short": "Quiet, peer-driven recognition with a monthly recap.",
+  "description": "A subtle alternative to leveling systems. Members star great messages (The Fridge) and thank each other (High Fives), and the bot quietly tracks who's a regular. Nothing spams chat — the bot just adds a small reaction to acknowledge, then celebrates everything once a month in a single warm Recap post. No per-message XP, no level-up spam, everything opt-out.",
+  "end_user_data_statement": "This cog stores Discord user IDs together with recognition data: message IDs and reaction counts for starred messages, high-five (reputation) counts, and the calendar dates a member was active. No message content is stored. A user's data is removed on a Red data-deletion request.",
+  "install_msg": "Community loaded. It runs quietly out of the box. Set a recap channel with `[p]community set recapchannel #channel`, then review everything with `[p]community set show`."
+}
