@@ -14,7 +14,7 @@ When a member posts their daily putt.day result, the bot detects it, records the
 
 Each day can only be logged **once per member**. If someone posts the same putt.day result again — even in a later week — it is ignored and the bot reacts with 🔁 instead of ⛳, so scores can't be accidentally counted twice.
 
-Leaderboards are shown as a centred 🥇🥈🥉 podium above an aligned monospace table, sorted by average relative to par (lower is better). Usernames are shown in full. For example:
+Leaderboards are shown as a centred 🥇🥈🥉 podium above an aligned monospace table, sorted by average relative to par (lower is better). Usernames show in full up to 18 characters (longer ones are ellipsised so the table stays readable on mobile). For example:
 
 > ⛳ **Weekly Leaderboard — 2026-W25**
 > ```
@@ -29,7 +29,7 @@ Leaderboards are shown as a centred 🥇🥈🥉 podium above an aligned monospa
 > ```
 > \* = used a restart
 
-Columns are **Rounds**, **Total** (total relative to par) and **Avg** (average per round). The daily board uses the same layout with **Score** (strokes/par) and **+/-** columns instead. The Player column widens to fit the longest name, so a very long username can make the table scroll sideways on mobile.
+Columns are **Rounds**, **Total** (total relative to par) and **Avg** (average per round). The daily board uses the same layout with **Score** (strokes/par) and **+/-** columns instead. The Player column auto-sizes to the longest (capped) name.
 
 ### How scores are detected
 

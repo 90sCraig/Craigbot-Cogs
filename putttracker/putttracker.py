@@ -121,6 +121,14 @@ def _safe_tz(name: str):
     return _resolve_tz(name) or timezone.utc
 
 
+NAME_CAP = 18  # cap on leaderboard usernames so the table stays mobile-friendly
+
+
+def _truncate(text: str, width: int) -> str:
+    """Cap ``text`` to ``width`` chars, adding an ellipsis when shortened."""
+    return text if len(text) <= width else text[: width - 1] + "…"
+
+
 class PuttTracker(commands.Cog):
     """Track putt.day scores with weekly and overall leaderboards."""
 
@@ -423,9 +431,9 @@ class PuttTracker(commands.Cog):
 
     @staticmethod
     def _table_name(name: str, had_restart) -> str:
-        # Backticks would break the surrounding code fence; swap them out.
-        # Names are shown in full — no truncation.
-        return name.replace("`", "'") + ("*" if had_restart else "")
+        # Backticks would break the code fence; swap them out. Names are shown
+        # in full up to NAME_CAP, then ellipsised so the table stays narrow.
+        return _truncate(name.replace("`", "'"), NAME_CAP) + ("*" if had_restart else "")
 
     @staticmethod
     def _visual_len(text: str) -> int:
@@ -445,7 +453,7 @@ class PuttTracker(commands.Cog):
             return []
 
         def tag(i):
-            name = rows[i][0].replace("`", "'")
+            name = _truncate(rows[i][0].replace("`", "'"), NAME_CAP)
             return f"{MEDALS[i]} {name}{'*' if rows[i][4] else ''}"
 
         out = [tag(0)]
