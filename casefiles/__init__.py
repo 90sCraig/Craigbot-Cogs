@@ -1,11 +1,11 @@
 from .casefiles import CaseFiles
 
 __red_end_user_data_statement__ = (
-    "This cog stores Discord user IDs together with the case-identification "
-    "leads (message text) those users post in the case channel, plus a count "
-    "of cases each user has helped solve. Tape images submitted to the bot are "
-    "stored in the cog's data folder. A user's leads and solve credit are "
-    "removed on a Red data-deletion request."
+    "This cog stores Discord user IDs together with the content of messages the "
+    "admin stamps as confirmed findings, plus the points and rank each user has "
+    "earned. Tape images submitted with a case are stored in the cog's data "
+    "folder. A user's stamped contributions are removed on a Red data-deletion "
+    "request."
 )
 
 

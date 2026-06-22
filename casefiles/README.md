@@ -1,4 +1,4 @@
-# CaseFiles
+# CaseFiles — VHS Detectives
 
 This is the cog guide for the 'CaseFiles' cog. This guide contains the collection of commands which you can use in the cog. Throughout this guide, `[p]` will always represent your prefix. Replace `[p]` with your own prefix when you use these commands in Discord.
 
@@ -8,125 +8,74 @@ This is the cog guide for the 'CaseFiles' cog. This guide contains the collectio
 
 ## About this cog
 
-Crowdsource the gaps in your tape archive. A **cold case** is an unidentified tape. You feed the bot a batch of images; it serves them to a case channel **one at a time**; your community (the detectives) reply with leads; a detective confirms the ID; and the bot **advances to the next case** — banking each solve so you can export it and merge it back into your [Obsidian](https://obsidian.md/) vault.
+A community-engagement bot for a VHS tape archive. It turns two solo bottlenecks — reading bad handwriting on mystery tapes, and post-stream research — into community detective work.
 
-**Decoupled by design:** the bot never touches your vault. Images come *in* over Discord, and solved cases go *out* as a file you review and import. Nothing is written to your notes automatically.
+**One case is live at a time** in a single case channel. The admin opens a case, the community replies right there, and the admin **stamps** good messages with an emoji to confirm them. A stamp is the one action that drives everything: it **awards the author points**, **records a Confirmed Finding** on the case card, and **bumps their rank**. Nothing counts until it's stamped — that's the anti-spam and the reward in one.
+
+No threads, no commands for detectives — just talk in the channel. Opening the next case archives the current one and the channel moves on.
+
+> **This is v1 (the Discord loop).** Rank *roles*, writing findings back to the Obsidian/Gitea archive, and the monthly "Top Detective" shoutout are planned follow-ups and are **not** in this version yet.
 
 ## How the loop works
 
-```
-   Your vault (blank tapes)
-            │  export images
-            ▼
-   [ intake channel ]  ──ingest──▶  queue  ──serve──▶  [ case channel ]
-                                                              │  detectives reply with leads
-                                                              ▼
-                                                          [p]case solve
-                                                              │  credits + advances
-                                                              ▼
-                                              solved (banked)  ──[p]case export──▶  Obsidian-ready file
-                                                                                          │
-                                                                                  you review & merge
-```
+1. **Open a case.** The admin runs `/case mystery` (a tape that's never been streamed) or `/case stream` (post-stream research). The bot posts a **case card** to the case channel and **pins** it.
+2. **Detectives reply** in the channel — reading the label, calling the content, answering the open questions. No command needed.
+3. **The admin stamps** a good reply by reacting to it with a stamp emoji:
 
-1. **Get images to the bot.** Drag a batch of tape photos into your **intake channel** (no hosting needed), then run `[p]case ingest`. The bot downloads and stores each one as a cold case. *(You can also `[p]case add` a single image, or `[p]case import` a JSON manifest.)*
-2. **Serve the queue.** `[p]case start` posts the first cold case to your **case channel** — the image plus any details you already know.
-3. **Collect leads.** Members reply with anything they can ID — distributor, catalog number, year, cover details. The bot quietly logs each reply (🔍) onto the case.
-4. **Crack it.** A detective runs `[p]case solve title=… distributor=… @whoever-cracked-it`. The bot records the answer, credits the detectives, and automatically serves the next cold case.
-5. **Export & merge.** `[p]case export` hands you an Obsidian-ready Markdown file (one note per solve, with frontmatter and the collected leads). Review it, drop it into your vault, then `[p]case clearsolved`.
+   | Emoji | Meaning | Points |
+   | --- | --- | --- |
+   | 💡 | Helpful lead | +1 |
+   | 🔍 | Solid solve | +3 |
+   | 🏆 | Cracked a stumper | +5 |
+
+   The bot awards the points, adds the finding to the card, and posts a one-line congrats if the author hits a new rank.
+4. **Move on.** Opening the next case archives the current one (its card stays as a record). Use `/case close` to archive without opening a new one.
+
+Stamping is **idempotent** (re-adding the same emoji does nothing), reactions from non-admins are ignored, and you can't stamp the bot, the case card, or your own message. Removing your stamp — or deleting a stamped message — **reverses** the points and the finding automatically.
 
 ## Setup
 
 ```
-[p]case set channel #cold-cases     # where cases are served & leads collected
-[p]case set intake #tape-intake     # private channel to drop raw images into
-[p]case set role @Detective         # who can run/solve cases (optional)
-[p]case set show
+[p]caseset channel #the-evidence-room   # the single channel cases live in
+[p]caseset adminrole @Curator           # optional: who can stamp (else Manage Server)
+[p]caseset show
 ```
 
-> **Permissions & intents:** the bot needs **Embed Links** and **Attach Files** in the case channel, **Read Message History** in the intake channel, and the **Message Content** intent (so it can read replies as leads). Running and solving cases is limited to the **Detective** role, or anyone with **Manage Server** if no role is set.
+> **Permissions & intents:** the bot needs **Manage Messages** (to pin the active case), **Embed Links**, **Add Reactions**, and the **Message Content** intent in the case channel. Only members with **Manage Server** (or the configured stamp role) can stamp or open cases.
 
-## Getting images in
+## Commands
 
-| Method | Best for | How |
-| --- | --- | --- |
-| **Intake channel** | A backlog of local vault images | Drag photos into the intake channel, then `[p]case ingest [limit]`. Already-ingested images are skipped. |
-| **Add one** | One-offs spotted on stream | `[p]case add` with an image attached (optionally with known fields). |
-| **JSON manifest** | Bulk, when images are already hosted | `[p]case import` with a `.json` attachment (see below). |
+### Admin
+- `/case mystery image:<photo> guess:<text?>` — open a mystery case. `guess` is an optional machine/AI transcription for detectives to push against.
+- `/case stream image:<photo> tape_id:<text> title:<text> questions:<text>` — open a post-stream case. `questions` (2–3 seeded unknowns) is required and is the biggest driver of good discussion.
+- `/case close` — archive the current case.
+- `/case rescan` — re-read reactions on the active case and reconcile any stamps made while the bot was offline (Discord doesn't replay those).
+- `[p]caseset channel|adminrole|show` — configuration.
 
-**Manifest format** — a JSON list; every field is optional:
+### Everyone
+- `/case status` — reprint the current case card and its confirmed findings (handy once it's scrolled off).
+- `/rank` — privately show your points, current rank, and points to the next rank.
 
-```json
-[
-  { "id": "0481", "image_url": "https://…/0481.jpg", "distributor": "Vestron", "year": "1987" },
-  { "image_url": "https://…/0482.jpg" }
-]
-```
+> Slash commands may need a one-time `[p]slash sync` after install.
 
-## Member commands
+## Ranks
 
-### `case current`
-Re-show the active cold case. **Alias:** `show`
+Points are cumulative and permanent. Default thresholds (configurable later):
 
-### `case leads [case_id]`
-Show the leads collected for the active case (or a specific id).
-
-### `case detectives`
-Show the detective leaderboard — who's cracked the most cases. **Aliases:** `leaderboard`, `lb`
-
-> Replying in the case channel is all a detective needs to do to contribute a lead — no command required.
-
-## Detective / mod commands
-
-These require the **Detective** role or **Manage Server**.
-
-### `case start`
-Serve the next cold case. Begins the queue, or moves it along. **Alias when advancing:** `case next` (sends the current case to the back of the queue and serves the next).
-
-### `case solve [fields] [@detectives]`
-Confirm the ID for the active case, credit whoever cracked it, and advance.
-
-```
-[p]case solve title=Blood Diner distributor=Vestron catalog=VA-5023 year=1987 @Craig @Dave
-```
-
-Recognized fields: `title`, `distributor`, `catalog`, `year`, `notes` (a title is required). Any members you @mention are credited with the solve.
-
-### `case skip [reason]`
-Shelve the active case (still unidentified) and advance to the next.
-
-### `case add [fields]`
-Add one cold case from an attached image. Attach a tape photo; optionally pass known details like `distributor=Vestron year=1987`.
-
-### `case ingest [limit]`
-Harvest images from the intake channel into the queue (default scans the last 25 messages).
-
-### `case import`
-Bulk-add cases from an attached JSON manifest (see [format](#getting-images-in) above).
-
-### `case queue`
-Show how many cases are queued, solved, and shelved, plus what's up next.
-
-### `case export [md|json]`
-Export solved cases as a file to import into your vault. `md` (default) gives Obsidian-ready notes; `json` gives a manifest.
-
-### `case clearsolved`
-Remove exported (solved) cases from storage. Asks for confirmation first — export before you clear.
-
-## Admin settings — `case set`
-
-| Command | What it does |
+| Rank | Points |
 | --- | --- |
-| `channel [#channel]` | Where cases are served and leads collected. |
-| `intake [#channel]` | Where you drop raw tape images for `ingest`. |
-| `role [@role]` | The Detective role allowed to run/solve cases (omit to clear). |
-| `autoadvance <on/off>` | Automatically serve the next case after a solve/skip (default on). |
-| `captureall <on/off>` | Log every case-channel message as a lead, or only direct replies (default on). |
-| `show` | Show the current settings. **Alias:** `settings` |
+| Tape Spotter | 1 |
+| Label Reader | 5 |
+| Case Cracker | 15 |
+| Field Archivist | 35 |
+| Senior Investigator | 70 |
+| Cold Case Closer | 125 |
+
+In v1 ranks are shown via `/rank` and a congrats line when you cross one. (Assigning a coloured **Discord role** per rank is a planned follow-up.)
 
 ## Data & privacy
 
-This cog stores Discord user IDs alongside the **leads** (message text) members post in the case channel, and a count of cases each member has helped solve. Submitted **tape images** are stored in the cog's own data folder (not your vault). No vault files are ever read or written. A user's leads and solve credit are removed on a Red data-deletion request, and solved cases (with their images) are removed when you run `[p]case clearsolved`.
+This cog stores Discord user IDs alongside the **content of messages the admin stamps** as confirmed findings, plus each user's points and rank. Submitted **tape images** are stored in the cog's own data folder — **no archive/vault files are read or written in v1**. A user's stamped contributions are removed on a Red data-deletion request.
 
 ## Installation
 
@@ -137,8 +86,3 @@ If you haven't added this repository before, install with the following commands
 [p]cog install Craigbot-cogs casefiles
 [p]load casefiles
 ```
-
-## Tip: pairs well with…
-
-- **MovieDB** — once a case is solved, `[p]movie <title>` pulls the poster and details to enrich the note.
-- **Community** — case solves are a natural thing to celebrate in the monthly recap.

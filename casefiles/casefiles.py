@@ -1,77 +1,52 @@
 """
-CaseFiles — crowdsource the gaps in a tape archive.
+CaseFiles — the "VHS Detectives" engagement bot (v1).
 
-A "cold case" is an unidentified tape from your Obsidian vault. You feed the
-bot a batch of images (drag them into an intake channel, add them one by one,
-or import a JSON manifest); it serves them to a case channel **one at a time**.
-Detectives reply with leads, a detective/mod confirms the ID, and the bot
-advances to the next case — banking the solved record so you can export it and
-import it back into your vault.
+One case is live at a time in a single case channel. The admin opens a case
+(a mystery tape to read, or a post-stream research case); the community talks
+right there in the channel; the admin **stamps** good messages with an emoji
+to confirm them. A stamp is the one action that matters: it awards the author
+points, records a Confirmed Finding on the case card, and bumps their rank.
 
-Decoupled by design: the bot never touches your vault. Images come in over
-Discord and are stored by the cog; solved cases go out as an Obsidian-ready
-file you review and merge yourself.
+No threads. Opening the next case archives the current one. Nothing counts
+until it's stamped — that's the anti-spam, the reward, and (later) the
+archive-write, all in one.
+
+v1 scope: the Discord loop only. Rank *roles*, vault/Gitea notes, and the
+monthly shoutout are deliberately left for the fast-follow.
 """
 
-import io
-import json
-import re
 from datetime import datetime, timezone
 
 import aiohttp
 import discord
+from discord import app_commands
 from redbot.core import commands, Config
 from redbot.core.data_manager import cog_data_path
-from redbot.core.utils.chat_formatting import pagify
-from redbot.core.utils.views import ConfirmView
 
-# Fields a case carries. "title" is the headline gap; the rest are the
-# collector details that pin a release down.
-KNOWN_KEYS = ("title", "distributor", "catalog", "year", "notes")
-FIELD_LABELS = {
-    "title": "Title",
-    "distributor": "Distributor / label",
-    "catalog": "Catalog #",
-    "year": "Year",
-    "notes": "Notes",
-}
-# Matches "key=value" tokens in a solve/add command, where a value runs until
-# the next known key or the end of the string (so values may contain spaces).
-_FIELD_RE = re.compile(
-    r"(?i)\b(" + "|".join(KNOWN_KEYS) + r")\s*=\s*(.*?)(?=\s+\b(?:"
-    + "|".join(KNOWN_KEYS) + r")\s*=|$)"
-)
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp")
 
+DEFAULT_STAMP_EMOJI = {"💡": 1, "🔍": 3, "🏆": 5}
+DEFAULT_RANKS = [
+    {"name": "Tape Spotter", "points": 1},
+    {"name": "Label Reader", "points": 5},
+    {"name": "Case Cracker", "points": 15},
+    {"name": "Field Archivist", "points": 35},
+    {"name": "Senior Investigator", "points": 70},
+    {"name": "Cold Case Closer", "points": 125},
+]
 
-def _parse_fields(text: str) -> dict:
-    """Pull ``key=value`` pairs (from KNOWN_KEYS) out of free text."""
-    out = {}
-    for key, value in _FIELD_RE.findall(text or ""):
-        value = value.strip()
-        if value:
-            out[key.lower()] = value
-    return out
+
+def _now():
+    return datetime.now(timezone.utc)
 
 
-def _detective_check():
-    """Allow bot owner, Manage Server, or the configured Detective role."""
-
-    async def predicate(ctx):
-        if ctx.guild is None:
-            return False
-        if await ctx.bot.is_owner(ctx.author):
-            return True
-        if ctx.author.guild_permissions.manage_guild:
-            return True
-        role_id = await ctx.cog.config.guild(ctx.guild).detective_role()
-        return bool(role_id) and any(r.id == role_id for r in ctx.author.roles)
-
-    return commands.check(predicate)
+def _trunc(text: str, width: int) -> str:
+    text = text.replace("\n", " ").strip()
+    return text if len(text) <= width else text[: width - 1] + "…"
 
 
 class CaseFiles(commands.Cog):
-    """Crowdsource tape IDs: serve unidentified tapes, collect leads, export solves."""
+    """VHS Detectives — stamp community findings on the live case to award points & ranks."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -79,46 +54,30 @@ class CaseFiles(commands.Cog):
         self.image_root = cog_data_path(self) / "images"
         self.image_root.mkdir(parents=True, exist_ok=True)
 
-        self.config = Config.get_conf(
-            self, identifier=20260620, force_registration=True
-        )
+        self.config = Config.get_conf(self, identifier=20260621, force_registration=True)
         self.config.register_guild(
-            case_channel=None,        # where cases are served + leads collected
-            intake_channel=None,      # drop raw tape images here for `ingest`
-            detective_role=None,      # who may solve/skip (None = Manage Server)
-            auto_advance=True,        # serve the next case automatically on solve
-            capture_all=True,         # treat all case-channel msgs as leads (else replies only)
-            counter=0,                # for auto-generated case ids
-            active_id=None,           # id of the case currently being served
-            order=[],                 # queued case ids, FIFO
-            cases={},                 # id -> case dict (see below)
-            detective_scores={},      # uid -> solved count
+            case_channel=None,         # the single channel cases live in
+            admin_role=None,           # who may stamp (else Manage Server)
+            stamp_emoji=DEFAULT_STAMP_EMOJI,
+            ranks=DEFAULT_RANKS,
+            counter=0,                 # for sequential CASE-001 ids
+            active_case=None,          # case_id of the live case
+            cases={},                  # case_id -> case dict
+            contributions={},          # message_id(str) -> contribution (source of truth)
         )
-        # case = {
-        #   "id", "image_file", "source",            # source = origin attachment id
-        #   "known": {title, distributor, catalog, year},
-        #   "status": "queued"|"active"|"solved"|"skipped",
-        #   "leads": [{uid, name, text, msg_id, ts}],
-        #   "solution": {...}, "solved_by": [uid], "solved_at",
-        #   "posted_msg",
-        # }
+        # case = {case_id, type, channel_id, image_file, status, opened_at, opened_ts,
+        #         message_id, tape_id?, title?, machine_guess?, open_questions?}
+        # contribution = {case_id, author_id, author_name, content, emoji, points,
+        #                 posted_ts, stamped_at}
 
     async def cog_unload(self):
         await self.session.close()
 
     async def red_delete_data_for_user(self, *, requester, user_id: int):
         for guild_id in await self.config.all_guilds():
-            gconf = self.config.guild_from_id(guild_id)
-            async with gconf.cases() as cases:
-                for case in cases.values():
-                    case["leads"] = [
-                        lead for lead in case.get("leads", [])
-                        if lead.get("uid") != user_id
-                    ]
-                    if user_id in case.get("solved_by", []):
-                        case["solved_by"].remove(user_id)
-            async with gconf.detective_scores() as scores:
-                scores.pop(str(user_id), None)
+            async with self.config.guild_from_id(guild_id).contributions() as contribs:
+                for mid in [m for m, c in contribs.items() if c.get("author_id") == user_id]:
+                    del contribs[mid]
 
     # ── Image storage ────────────────────────────────────────────────────
 
@@ -127,21 +86,16 @@ class CaseFiles(commands.Cog):
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    async def _store_image(self, guild, case_id, *, url=None, attachment=None):
-        """Download an image to the cog's data folder; return the filename."""
-        ext = ".jpg"
-        if attachment is not None:
-            url = attachment.url
-            name = attachment.filename.lower()
-            ext = next((e for e in IMAGE_EXTS if name.endswith(e)), ".jpg")
-        elif url:
-            lower = url.split("?")[0].lower()
-            ext = next((e for e in IMAGE_EXTS if lower.endswith(e)), ".jpg")
-        if not url:
-            return None
+    @staticmethod
+    def _is_image(att: discord.Attachment) -> bool:
+        return (att.content_type or "").startswith("image") or att.filename.lower().endswith(IMAGE_EXTS)
+
+    async def _store_image(self, guild, case_id, attachment) -> str:
+        name = attachment.filename.lower()
+        ext = next((e for e in IMAGE_EXTS if name.endswith(e)), ".jpg")
         filename = f"{case_id}{ext}"
         try:
-            async with self.session.get(url) as resp:
+            async with self.session.get(attachment.url) as resp:
                 if resp.status != 200:
                     return None
                 data = await resp.read()
@@ -157,600 +111,483 @@ class CaseFiles(commands.Cog):
         path = self._image_dir(guild) / fname
         return discord.File(path, filename=fname) if path.exists() else None
 
-    # ── Lead collection (replies in the case channel) ────────────────────
+    # ── Permissions / ranks ──────────────────────────────────────────────
 
-    @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        if message.author.bot or message.guild is None or not message.content:
-            return
-        conf = await self.config.guild(message.guild).all()
-        if not conf["case_channel"] or message.channel.id != conf["case_channel"]:
-            return
-        active_id = conf["active_id"]
-        if not active_id or active_id not in conf["cases"]:
-            return
+    @staticmethod
+    def _is_stamper(member: discord.Member, conf: dict) -> bool:
+        if member.guild_permissions.manage_guild or member.guild_permissions.administrator:
+            return True
+        role_id = conf.get("admin_role")
+        return bool(role_id) and any(r.id == role_id for r in member.roles)
 
-        is_reply = bool(
-            message.reference
-            and message.reference.message_id == conf["cases"][active_id].get("posted_msg")
-        )
-        if not (conf["capture_all"] or is_reply):
-            return
-        # Don't log bot commands as leads.
-        ctx = await self.bot.get_context(message)
-        if ctx.valid:
-            return
+    @staticmethod
+    def _rank_index(conf: dict, total: int) -> int:
+        idx = -1
+        for i, rank in enumerate(conf["ranks"]):
+            if total >= rank["points"]:
+                idx = i
+        return idx
 
-        async with self.config.guild(message.guild).cases() as cases:
-            case = cases.get(active_id)
-            if case is None:
-                return
-            case.setdefault("leads", []).append({
-                "uid": message.author.id,
-                "name": message.author.display_name,
-                "text": message.content[:500],
-                "msg_id": message.id,
-                "ts": datetime.now(timezone.utc).isoformat(),
-            })
+    def _rank_name(self, conf: dict, total: int) -> str:
+        idx = self._rank_index(conf, total)
+        return conf["ranks"][idx]["name"] if idx >= 0 else "Unranked"
+
+    def _points_to_next(self, conf: dict, total: int):
+        idx = self._rank_index(conf, total)
+        if idx + 1 < len(conf["ranks"]):
+            nxt = conf["ranks"][idx + 1]
+            return nxt["points"] - total, nxt["name"]
+        return None, None
+
+    @staticmethod
+    def _author_total(contribs: dict, author_id: int) -> int:
+        return sum(c["points"] for c in contribs.values() if c["author_id"] == author_id)
+
+    # ── Case lookup / attribution ────────────────────────────────────────
+
+    @staticmethod
+    def _case_for_message(conf: dict, channel_id: int, posted_ts: float):
+        """The case that was live in ``channel_id`` when the message was posted."""
+        best, best_ts = None, -1.0
+        for cid, case in conf["cases"].items():
+            if case["channel_id"] != channel_id:
+                continue
+            if best_ts < case["opened_ts"] <= posted_ts:
+                best, best_ts = cid, case["opened_ts"]
+        return best
+
+    @staticmethod
+    def _findings_for(conf: dict, case_id: str) -> list:
+        rows = [c for c in conf["contributions"].values() if c["case_id"] == case_id]
+        rows.sort(key=lambda c: c["stamped_at"])
+        return rows
+
+    # ── Card rendering ───────────────────────────────────────────────────
+
+    def _build_card_embed(self, case: dict, findings: list, limit: int = 5) -> discord.Embed:
+        mystery = case["type"] == "mystery"
+        if mystery:
+            embed = discord.Embed(
+                title=f"🔍 NEW CASE — {case['case_id']}",
+                color=discord.Color.gold(),
+            )
+            embed.add_field(name="Status", value="🟡 Cold — never streamed", inline=False)
+            if case.get("machine_guess"):
+                embed.add_field(
+                    name="🤖 Machine guess (unverified)",
+                    value=case["machine_guess"],
+                    inline=False,
+                )
+            embed.add_field(
+                name="Your mission",
+                value="Read the label and call the content — just reply in this channel.",
+                inline=False,
+            )
+        else:
+            embed = discord.Embed(
+                title=f"📂 CASE FILE — {case.get('tape_id') or case['case_id']}",
+                description=f"**{case.get('title') or 'Untitled tape'}**",
+                color=discord.Color.green(),
+            )
+            embed.add_field(name="Status", value="🟢 Open for research", inline=False)
+            embed.add_field(
+                name="Streamed", value=case["opened_at"][:10], inline=True
+            )
+            if case.get("open_questions"):
+                embed.add_field(
+                    name="❓ Open questions", value=case["open_questions"], inline=False
+                )
+            embed.add_field(
+                name="​",
+                value="🔒 *Core notes are locked. Anything stamped lives in the case file.*",
+                inline=False,
+            )
+
+        if case.get("image_file"):
+            embed.set_image(url=f"attachment://{case['image_file']}")
+
+        if findings:
+            shown = findings[-limit:]
+            lines = [
+                f"{c['emoji']} {_trunc(c['content'] or '(see message)', 80)} — "
+                f"**{c['author_name']}** (+{c['points']})"
+                for c in shown
+            ]
+            body = "\n".join(lines)
+            if len(findings) > limit:
+                body = f"➕ {len(findings) - limit} more · `/case status`\n" + body
+        else:
+            body = "*None yet — be the first to crack it.*"
+        embed.add_field(name="✅ Confirmed Findings", value=body[:1024], inline=False)
+        embed.set_footer(text=case["case_id"])
+        return embed
+
+    async def _refresh_card(self, guild, case_id: str):
+        conf = await self.config.guild(guild).all()
+        case = conf["cases"].get(case_id)
+        if not case or not case.get("message_id"):
+            return
+        channel = guild.get_channel(case["channel_id"])
+        if channel is None:
+            return
+        embed = self._build_card_embed(case, self._findings_for(conf, case_id))
         try:
-            await message.add_reaction("🔍")
+            msg = await channel.fetch_message(case["message_id"])
+            await msg.edit(embed=embed)
         except discord.HTTPException:
             pass
 
-    # ── Serving cases ────────────────────────────────────────────────────
+    # ── Stamp / un-stamp (shared by listeners and rescan) ────────────────
 
-    def _known_lines(self, known: dict) -> str:
-        return "\n".join(
-            f"**{FIELD_LABELS[k]}:** {known.get(k) or '—'}"
-            for k in ("title", "distributor", "catalog", "year")
-        )
+    async def _record_stamp(self, guild, message: discord.Message, emoji: str, *, announce=True) -> bool:
+        conf = await self.config.guild(guild).all()
+        points = conf["stamp_emoji"].get(emoji)
+        if points is None:
+            return False
+        case_id = self._case_for_message(conf, message.channel.id, message.created_at.timestamp())
+        if case_id is None:
+            return False  # message predates every case
 
-    async def _serve_case(self, guild, channel, case):
-        """Post a cold case to the channel; record its message id."""
-        embed = discord.Embed(
-            title=f"🔍 Cold Case #{case['id']}",
-            description=(
-                f"{self._known_lines(case.get('known', {}))}\n\n"
-                "*Recognise this tape? Reply with anything you can ID — "
-                "distributor, catalog number, year, cover details…*"
-            ),
-            color=discord.Color.dark_gold(),
-        )
-        leads = len(case.get("leads", []))
-        if leads:
-            embed.set_footer(text=f"{leads} lead{'s' if leads != 1 else ''} so far")
-        file = self._image_file(guild, case)
-        if file:
-            embed.set_image(url=f"attachment://{case['image_file']}")
+        mid = str(message.id)
+        crossed = None
+        async with self.config.guild(guild).contributions() as contribs:
+            existing = contribs.get(mid)
+            if existing and existing["emoji"] == emoji:
+                return False  # idempotent
+            author_id = message.author.id
+            before = self._author_total(contribs, author_id)
+            contribs[mid] = {
+                "case_id": case_id,
+                "author_id": author_id,
+                "author_name": message.author.display_name,
+                "content": (message.content or "")[:300],
+                "emoji": emoji,
+                "points": points,
+                "posted_ts": message.created_at.timestamp(),
+                "stamped_at": _now().isoformat(),
+            }
+            after = self._author_total(contribs, author_id)
+            if self._rank_index(conf, after) > self._rank_index(conf, before):
+                crossed = self._rank_name(conf, after)
+
+        await self._refresh_card(guild, case_id)
+        if announce and crossed:
+            channel = guild.get_channel(message.channel.id)
+            if channel:
+                try:
+                    await channel.send(
+                        f"🎉 {message.author.mention} reached **{crossed}**!",
+                        allowed_mentions=discord.AllowedMentions(users=True),
+                    )
+                except discord.HTTPException:
+                    pass
+        return True
+
+    async def _remove_stamp(self, guild, mid: str) -> bool:
+        async with self.config.guild(guild).contributions() as contribs:
+            existing = contribs.pop(mid, None)
+        if not existing:
+            return False
+        await self._refresh_card(guild, existing["case_id"])
+        return True
+
+    # ── Listeners ────────────────────────────────────────────────────────
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        if payload.guild_id is None or payload.user_id == self.bot.user.id:
+            return
+        guild = self.bot.get_guild(payload.guild_id)
+        if guild is None:
+            return
+        conf = await self.config.guild(guild).all()
+        if not conf["case_channel"] or payload.channel_id != conf["case_channel"]:
+            return
+        emoji = str(payload.emoji)
+        if emoji not in conf["stamp_emoji"]:
+            return
+        member = payload.member or guild.get_member(payload.user_id)
+        if member is None or not self._is_stamper(member, conf):
+            return
+        channel = guild.get_channel(payload.channel_id)
+        if channel is None:
+            return
+        try:
+            message = await channel.fetch_message(payload.message_id)
+        except discord.HTTPException:
+            return
+        if message.author.bot or message.author.id == member.id:
+            return  # no bot/self stamping
+        if any(c.get("message_id") == message.id for c in conf["cases"].values()):
+            return  # don't stamp a case card itself
+        await self._record_stamp(guild, message, emoji)
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        if payload.guild_id is None:
+            return
+        guild = self.bot.get_guild(payload.guild_id)
+        if guild is None:
+            return
+        conf = await self.config.guild(guild).all()
+        if not conf["case_channel"] or payload.channel_id != conf["case_channel"]:
+            return
+        emoji = str(payload.emoji)
+        mid = str(payload.message_id)
+        existing = conf["contributions"].get(mid)
+        if not existing or existing["emoji"] != emoji:
+            return
+        # Only un-stamp if no admin is still reacting with this emoji (a regular
+        # member removing their own copy must not undo the admin's stamp).
+        channel = guild.get_channel(payload.channel_id)
+        try:
+            message = await channel.fetch_message(payload.message_id)
+        except discord.HTTPException:
+            return
+        for reaction in message.reactions:
+            if str(reaction.emoji) != emoji:
+                continue
+            async for user in reaction.users():
+                m = guild.get_member(user.id)
+                if m and self._is_stamper(m, conf):
+                    return  # an admin stamp remains
+        await self._remove_stamp(guild, mid)
+
+    @commands.Cog.listener()
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
+        if payload.guild_id is None:
+            return
+        guild = self.bot.get_guild(payload.guild_id)
+        if guild is None:
+            return
+        if str(payload.message_id) in (await self.config.guild(guild).contributions()):
+            await self._remove_stamp(guild, str(payload.message_id))
+
+    # ── Opening cases ────────────────────────────────────────────────────
+
+    async def _open_case(self, ctx, ctype, attachment, **fields):
+        await ctx.defer(ephemeral=True)  # downloading the image can take a moment
+        conf = await self.config.guild(ctx.guild).all()
+        channel = ctx.guild.get_channel(conf["case_channel"] or 0)
+        if channel is None:
+            await ctx.send("Set the case channel first: `[p]caseset channel #channel`.")
+            return
+        if not self._is_image(attachment):
+            await ctx.send("Please attach an image of the tape.")
+            return
+
+        n = conf["counter"] + 1
+        await self.config.guild(ctx.guild).counter.set(n)
+        case_id = f"CASE-{n:03d}"
+        image_file = await self._store_image(ctx.guild, case_id, attachment)
+        now = _now()
+        case = {
+            "case_id": case_id,
+            "type": ctype,
+            "channel_id": channel.id,
+            "image_file": image_file,
+            "status": "active",
+            "opened_at": now.isoformat(),
+            "opened_ts": now.timestamp(),
+            "message_id": None,
+            "tape_id": fields.get("tape_id"),
+            "title": fields.get("title"),
+            "machine_guess": fields.get("machine_guess"),
+            "open_questions": fields.get("open_questions"),
+        }
+
+        await self._archive_active(ctx.guild, conf)
+        async with self.config.guild(ctx.guild).cases() as cases:
+            cases[case_id] = case
+        await self.config.guild(ctx.guild).active_case.set(case_id)
+
+        embed = self._build_card_embed(case, [])
+        file = self._image_file(ctx.guild, case)
         try:
             msg = await channel.send(embed=embed, file=file)
         except discord.HTTPException:
-            return None
-        case["posted_msg"] = msg.id
-        return msg
-
-    async def _advance(self, guild):
-        """Activate and serve the next queued case. Returns the case or None."""
-        channel_id = await self.config.guild(guild).case_channel()
-        channel = guild.get_channel(channel_id or 0)
-        if channel is None:
-            return None
-        async with self.config.guild(guild).cases() as cases:
-            async with self.config.guild(guild).order() as order:
-                next_id = None
-                while order:
-                    candidate = order.pop(0)
-                    if candidate in cases and cases[candidate]["status"] == "queued":
-                        next_id = candidate
-                        break
-                if next_id is None:
-                    await self.config.guild(guild).active_id.set(None)
-                    return None
-                cases[next_id]["status"] = "active"
-                case_copy = dict(cases[next_id])
-        await self.config.guild(guild).active_id.set(next_id)
-        # Serve outside the context managers, then persist the message id.
-        msg = await self._serve_case(guild, channel, case_copy)
-        if msg is not None:
-            async with self.config.guild(guild).cases() as cases:
-                if next_id in cases:
-                    cases[next_id]["posted_msg"] = msg.id
-            return case_copy
-        return None
-
-    # ── Adding cases ─────────────────────────────────────────────────────
-
-    async def _new_case_id(self, guild, provided=None):
-        if provided:
-            return str(provided)
-        n = await self.config.guild(guild).counter()
-        n += 1
-        await self.config.guild(guild).counter.set(n)
-        return f"{n:04d}"
-
-    @commands.guild_only()
-    @commands.group(name="casefile", aliases=["case", "cc"], invoke_without_command=True)
-    async def casefile(self, ctx: commands.Context):
-        """Crowdsourced tape identification. Use subcommands for details."""
-        await ctx.send_help(ctx.command)
-
-    @casefile.command(name="add")
-    @_detective_check()
-    async def case_add(self, ctx: commands.Context, *, fields: str = ""):
-        """Add one cold case from an attached image.
-
-        Attach a tape photo and optionally pass known details, e.g.
-        `[p]case add distributor=Vestron year=1987`
-        """
-        images = [a for a in ctx.message.attachments
-                  if (a.content_type or "").startswith("image")
-                  or a.filename.lower().endswith(IMAGE_EXTS)]
-        if not images:
-            await ctx.send("Attach a tape image to add a case.")
-            return
-        known = _parse_fields(fields)
-        added = 0
-        for att in images:
-            case_id = await self._new_case_id(ctx.guild)
-            image_file = await self._store_image(ctx.guild, case_id, attachment=att)
-            await self._register_case(ctx.guild, case_id, image_file, known, att.id)
-            added += 1
-        await ctx.send(f"🗂️ Added **{added}** cold case{'s' if added != 1 else ''} to the queue.")
-
-    @casefile.command(name="ingest")
-    @_detective_check()
-    async def case_ingest(self, ctx: commands.Context, limit: int = 25):
-        """Harvest images from the intake channel into the queue.
-
-        Drag a batch of tape photos into the intake channel, then run this.
-        Already-ingested images are skipped. `limit` caps how many recent
-        messages are scanned (default 25).
-        """
-        intake_id = await self.config.guild(ctx.guild).intake_channel()
-        intake = ctx.guild.get_channel(intake_id or 0)
-        if intake is None:
-            await ctx.send("Set an intake channel first: `[p]case set intake #channel`.")
-            return
-        seen = {
-            c.get("source")
-            for c in (await self.config.guild(ctx.guild).cases()).values()
-            if c.get("source") is not None
-        }
-        added = 0
-        async with ctx.typing():
-            async for message in intake.history(limit=max(1, min(200, limit))):
-                for att in message.attachments:
-                    if att.id in seen:
-                        continue
-                    if not ((att.content_type or "").startswith("image")
-                            or att.filename.lower().endswith(IMAGE_EXTS)):
-                        continue
-                    case_id = await self._new_case_id(ctx.guild)
-                    image_file = await self._store_image(ctx.guild, case_id, attachment=att)
-                    await self._register_case(ctx.guild, case_id, image_file, {}, att.id)
-                    added += 1
-        await ctx.send(
-            f"🗂️ Ingested **{added}** new image{'s' if added != 1 else ''} from "
-            f"{intake.mention}." if added else "No new images found to ingest."
-        )
-
-    @casefile.command(name="import")
-    @_detective_check()
-    async def case_import(self, ctx: commands.Context):
-        """Bulk-add cases from an attached JSON manifest.
-
-        Attach a `.json` file: a list of objects, each optionally with
-        `id`, `image_url`, and any of: title, distributor, catalog, year.
-        """
-        if not ctx.message.attachments:
-            await ctx.send("Attach a JSON manifest to import.")
+            await ctx.send("Couldn't post the case card — check my permissions in that channel.")
             return
         try:
-            raw = await ctx.message.attachments[0].read()
-            entries = json.loads(raw)
-            assert isinstance(entries, list)
-        except (json.JSONDecodeError, AssertionError, UnicodeDecodeError):
-            await ctx.send("That doesn't look like a JSON list. See `[p]help case import`.")
+            await msg.pin(reason="Active VHS Detectives case")
+        except discord.HTTPException:
+            pass
+        async with self.config.guild(ctx.guild).cases() as cases:
+            cases[case_id]["message_id"] = msg.id
+
+        await ctx.send(f"🗂️ Opened **{case_id}** in {channel.mention}.", ephemeral=True)
+
+    async def _archive_active(self, guild, conf):
+        active = conf.get("active_case")
+        if not active:
             return
+        case = conf["cases"].get(active)
+        if case and case.get("message_id"):
+            channel = guild.get_channel(case["channel_id"])
+            if channel:
+                try:
+                    msg = await channel.fetch_message(case["message_id"])
+                    await msg.unpin(reason="Case archived")
+                except discord.HTTPException:
+                    pass
+        async with self.config.guild(guild).cases() as cases:
+            if active in cases:
+                cases[active]["status"] = "archived"
+        await self.config.guild(guild).active_case.set(None)
+
+    # ── Commands ─────────────────────────────────────────────────────────
+
+    @commands.guild_only()
+    @commands.hybrid_group(name="case")
+    async def case(self, ctx: commands.Context):
+        """VHS Detectives case board."""
+        await ctx.send_help(ctx.command)
+
+    @case.command(name="mystery")
+    @commands.admin_or_permissions(manage_guild=True)
+    @app_commands.describe(
+        image="Photo of the tape label",
+        guess="Optional machine/AI transcription for detectives to push against",
+    )
+    async def case_mystery(self, ctx: commands.Context, image: discord.Attachment, *, guess: str = None):
+        """Open a mystery case (a tape that's never been streamed)."""
+        await self._open_case(ctx, "mystery", image, machine_guess=guess)
+
+    @case.command(name="stream")
+    @commands.admin_or_permissions(manage_guild=True)
+    @app_commands.describe(
+        image="Photo of the tape",
+        tape_id="Archive id, e.g. VHS-2026-112",
+        title="The tape's known title",
+        questions="2–3 open questions to seed the research",
+    )
+    async def case_stream(
+        self, ctx: commands.Context, image: discord.Attachment,
+        tape_id: str, title: str, *, questions: str,
+    ):
+        """Open a post-stream research case."""
+        await self._open_case(
+            ctx, "stream", image, tape_id=tape_id, title=title, open_questions=questions
+        )
+
+    @case.command(name="status")
+    async def case_status(self, ctx: commands.Context):
+        """Reprint the current case card and its confirmed findings."""
+        conf = await self.config.guild(ctx.guild).all()
+        active = conf["active_case"]
+        if not active or active not in conf["cases"]:
+            await ctx.send("No case is open right now.")
+            return
+        case = conf["cases"][active]
+        embed = self._build_card_embed(case, self._findings_for(conf, active), limit=10)
+        file = self._image_file(ctx.guild, case)
+        await ctx.send(embed=embed, file=file)
+
+    @case.command(name="close")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def case_close(self, ctx: commands.Context):
+        """Archive the current case without opening a new one."""
+        conf = await self.config.guild(ctx.guild).all()
+        if not conf["active_case"]:
+            await ctx.send("No case is open.")
+            return
+        closed = conf["active_case"]
+        await self._archive_active(ctx.guild, conf)
+        await ctx.send(f"📦 Archived **{closed}**.", ephemeral=True)
+
+    @case.command(name="rescan")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def case_rescan(self, ctx: commands.Context):
+        """Reconcile stamps on the active case (catches any made while I was offline)."""
+        conf = await self.config.guild(ctx.guild).all()
+        active = conf["active_case"]
+        if not active or active not in conf["cases"]:
+            await ctx.send("No case is open to rescan.")
+            return
+        case = conf["cases"][active]
+        channel = ctx.guild.get_channel(case["channel_id"])
+        if channel is None:
+            await ctx.send("Case channel not found.")
+            return
+        await ctx.defer(ephemeral=True)  # scanning history can take a moment
 
         added = 0
-        async with ctx.typing():
-            for entry in entries:
-                if not isinstance(entry, dict):
+        after = datetime.fromtimestamp(case["opened_ts"], tz=timezone.utc)
+        async for message in channel.history(limit=500, after=after):
+            if message.author.bot or message.id == case["message_id"]:
+                continue
+            if str(message.id) in (await self.config.guild(ctx.guild).contributions()):
+                continue
+            stamp = None
+            for reaction in message.reactions:
+                e = str(reaction.emoji)
+                if e not in conf["stamp_emoji"]:
                     continue
-                case_id = await self._new_case_id(ctx.guild, entry.get("id"))
-                known = {k: str(entry[k]) for k in KNOWN_KEYS if entry.get(k)}
-                image_file = None
-                if entry.get("image_url"):
-                    image_file = await self._store_image(
-                        ctx.guild, case_id, url=entry["image_url"]
-                    )
-                await self._register_case(ctx.guild, case_id, image_file, known, None)
+                async for user in reaction.users():
+                    m = ctx.guild.get_member(user.id)
+                    if m and self._is_stamper(m, conf) and m.id != message.author.id:
+                        stamp = e
+                        break
+                if stamp:
+                    break
+            if stamp and await self._record_stamp(ctx.guild, message, stamp, announce=False):
                 added += 1
-        await ctx.send(f"🗂️ Imported **{added}** case{'s' if added != 1 else ''} into the queue.")
+        await ctx.send(f"🔁 Rescan complete — reconciled **{added}** stamp(s).", ephemeral=True)
 
-    async def _register_case(self, guild, case_id, image_file, known, source):
-        async with self.config.guild(guild).cases() as cases:
-            cases[case_id] = {
-                "id": case_id,
-                "image_file": image_file,
-                "source": source,
-                "known": {k: known.get(k) for k in ("title", "distributor", "catalog", "year")},
-                "status": "queued",
-                "leads": [],
-                "solution": {},
-                "solved_by": [],
-                "solved_at": None,
-                "posted_msg": None,
-            }
-        async with self.config.guild(guild).order() as order:
-            order.append(case_id)
-
-    # ── Running the queue ────────────────────────────────────────────────
-
-    @casefile.command(name="start", aliases=["next"])
-    @_detective_check()
-    async def case_start(self, ctx: commands.Context):
-        """Serve the next cold case (begins the queue or moves it along)."""
-        if not await self.config.guild(ctx.guild).case_channel():
-            await ctx.send("Set a case channel first: `[p]case set channel #channel`.")
-            return
-        active_id = await self.config.guild(ctx.guild).active_id()
-        if active_id and ctx.invoked_with != "next":
-            await ctx.send(
-                f"Cold Case #{active_id} is already active. Use `[p]case next` to skip ahead "
-                f"or `[p]case solve` to crack it."
-            )
-            return
-        # `next` on an active case sends it to the back of the queue, not the bin.
-        if active_id:
-            async with self.config.guild(ctx.guild).cases() as cases:
-                if active_id in cases:
-                    cases[active_id]["status"] = "queued"
-            async with self.config.guild(ctx.guild).order() as order:
-                order.append(active_id)
-            await self.config.guild(ctx.guild).active_id.set(None)
-        case = await self._advance(ctx.guild)
-        if case is None:
-            await ctx.send("The queue is empty — no cold cases waiting. 🎉")
-        elif ctx.channel.id != await self.config.guild(ctx.guild).case_channel():
-            await ctx.send(f"Now serving Cold Case #{case['id']}.")
-
-    @casefile.command(name="solve")
-    @_detective_check()
-    async def case_solve(self, ctx: commands.Context, *, details: str = ""):
-        """Confirm the ID for the active case, credit detectives, and advance.
-
-        Pass the confirmed details and @mention whoever cracked it, e.g.
-        `[p]case solve title=Blood Diner distributor=Vestron year=1987 @Craig`
-        """
-        active_id = await self.config.guild(ctx.guild).active_id()
-        if not active_id:
-            await ctx.send("There's no active case. Start one with `[p]case start`.")
-            return
-        fields = _parse_fields(details)
-        credited = [m.id for m in ctx.message.mentions if not m.bot]
-
-        async with self.config.guild(ctx.guild).cases() as cases:
-            case = cases.get(active_id)
-            if case is None:
-                await ctx.send("Active case not found.")
-                return
-            solution = dict(case.get("known", {}))
-            solution.update(fields)
-            if not solution.get("title"):
-                await ctx.send(
-                    "Give at least a title to solve, e.g. `[p]case solve title=Blood Diner`."
-                )
-                return
-            case["solution"] = solution
-            case["status"] = "solved"
-            case["solved_by"] = credited
-            case["solved_at"] = datetime.now(timezone.utc).isoformat()
-            solved_title = solution["title"]
-
-        async with self.config.guild(ctx.guild).detective_scores() as scores:
-            for uid in credited:
-                scores[str(uid)] = scores.get(str(uid), 0) + 1
-
-        await self.config.guild(ctx.guild).active_id.set(None)
-        who = (
-            " · cracked by " + ", ".join(f"<@{uid}>" for uid in credited)
-            if credited else ""
-        )
-        await ctx.send(
-            f"✅ **Cold Case #{active_id} solved** — *{solved_title}*{who}. "
-            f"Banked for export.",
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
-        if await self.config.guild(ctx.guild).auto_advance():
-            if await self._advance(ctx.guild) is None:
-                await ctx.send("That was the last one — the queue is clear. 🎉")
-
-    @casefile.command(name="skip")
-    @_detective_check()
-    async def case_skip(self, ctx: commands.Context, *, reason: str = ""):
-        """Shelve the active case (still unidentified) and advance."""
-        active_id = await self.config.guild(ctx.guild).active_id()
-        if not active_id:
-            await ctx.send("There's no active case to skip.")
-            return
-        async with self.config.guild(ctx.guild).cases() as cases:
-            if active_id in cases:
-                cases[active_id]["status"] = "skipped"
-                if reason:
-                    cases[active_id]["skip_reason"] = reason[:300]
-        await self.config.guild(ctx.guild).active_id.set(None)
-        await ctx.send(f"⏭️ Shelved Cold Case #{active_id}.")
-        if await self.config.guild(ctx.guild).auto_advance():
-            if await self._advance(ctx.guild) is None:
-                await ctx.send("Queue is clear. 🎉")
-
-    # ── Viewing ──────────────────────────────────────────────────────────
-
-    @casefile.command(name="current", aliases=["show"])
-    async def case_current(self, ctx: commands.Context):
-        """Re-show the active cold case."""
+    @commands.guild_only()
+    @commands.hybrid_command(name="rank")
+    async def rank(self, ctx: commands.Context):
+        """Show your detective points and rank (only you see this)."""
         conf = await self.config.guild(ctx.guild).all()
-        active_id = conf["active_id"]
-        if not active_id or active_id not in conf["cases"]:
-            await ctx.send("No active case right now.")
-            return
-        channel = ctx.guild.get_channel(conf["case_channel"] or 0) or ctx.channel
-        msg = await self._serve_case(ctx.guild, channel, conf["cases"][active_id])
-        if msg is not None:
-            async with self.config.guild(ctx.guild).cases() as cases:
-                if active_id in cases:
-                    cases[active_id]["posted_msg"] = msg.id
-
-    @casefile.command(name="leads")
-    async def case_leads(self, ctx: commands.Context, case_id: str = None):
-        """Show the leads collected for the active case (or a given id)."""
-        conf = await self.config.guild(ctx.guild).all()
-        case_id = case_id or conf["active_id"]
-        case = conf["cases"].get(case_id) if case_id else None
-        if not case:
-            await ctx.send("No such case.")
-            return
-        leads = case.get("leads", [])
-        if not leads:
-            await ctx.send(f"No leads on Cold Case #{case_id} yet.")
-            return
-        body = "\n".join(f"• **{ld['name']}**: {ld['text']}" for ld in leads)
-        for page in pagify(body, page_length=1800):
-            await ctx.send(
-                embed=discord.Embed(
-                    title=f"🔍 Leads — Cold Case #{case_id}",
-                    description=page,
-                    color=discord.Color.dark_gold(),
-                )
-            )
-
-    @casefile.command(name="queue")
-    @_detective_check()
-    async def case_queue(self, ctx: commands.Context):
-        """Show how many cases are queued, solved, and shelved."""
-        conf = await self.config.guild(ctx.guild).all()
-        cases = conf["cases"].values()
-        counts = {"queued": 0, "active": 0, "solved": 0, "skipped": 0}
-        for c in cases:
-            counts[c["status"]] = counts.get(c["status"], 0) + 1
-        upcoming = ", ".join(f"#{cid}" for cid in conf["order"][:10]) or "—"
-        await ctx.send(
-            embed=discord.Embed(
-                title="🗂️ Case Files",
-                description=(
-                    f"**Queued:** {counts['queued']}\n"
-                    f"**Active:** {conf['active_id'] or '—'}\n"
-                    f"**Solved (awaiting export):** {counts['solved']}\n"
-                    f"**Shelved:** {counts['skipped']}\n\n"
-                    f"**Up next:** {upcoming}"
-                ),
-                color=discord.Color.dark_gold(),
-            )
-        )
-
-    @casefile.command(name="detectives", aliases=["leaderboard", "lb"])
-    async def case_detectives(self, ctx: commands.Context):
-        """Show the detective leaderboard (cases cracked)."""
-        scores = await self.config.guild(ctx.guild).detective_scores()
-        rows = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
-        if not rows:
-            await ctx.send("No cases cracked yet — get sleuthing! 🔍")
-            return
-        medals = ("🥇", "🥈", "🥉")
-        lines = []
-        for i, (uid, count) in enumerate(rows[:15]):
-            member = ctx.guild.get_member(int(uid))
-            name = member.display_name if member else f"User {uid}"
-            prefix = medals[i] if i < len(medals) else f"`{i + 1}.`"
-            lines.append(f"{prefix} **{name}** · {count} solved")
-        await ctx.send(
-            embed=discord.Embed(
-                title="🕵️ Detective Leaderboard",
-                description="\n".join(lines),
-                color=discord.Color.dark_gold(),
-            )
-        )
-
-    # ── Export (the write-back you import into Obsidian) ─────────────────
-
-    @casefile.command(name="export")
-    @_detective_check()
-    async def case_export(self, ctx: commands.Context, fmt: str = "md"):
-        """Export solved cases as a file to import into your vault.
-
-        `[p]case export` gives Obsidian-ready Markdown (one note per solve);
-        `[p]case export json` gives a JSON manifest.
-        """
-        cases = await self.config.guild(ctx.guild).cases()
-        solved = [c for c in cases.values() if c["status"] == "solved"]
-        if not solved:
-            await ctx.send("No solved cases to export yet.")
-            return
-        solved.sort(key=lambda c: c["id"])
-
-        if fmt.lower() == "json":
-            payload = [
-                {
-                    "id": c["id"],
-                    "image_file": c.get("image_file"),
-                    **c["solution"],
-                    "solved_by": [
-                        (ctx.guild.get_member(uid).display_name
-                         if ctx.guild.get_member(uid) else str(uid))
-                        for uid in c.get("solved_by", [])
-                    ],
-                    "solved_at": c.get("solved_at"),
-                    "leads": [ld["text"] for ld in c.get("leads", [])],
-                }
-                for c in solved
-            ]
-            data = json.dumps(payload, indent=2, ensure_ascii=False)
-            filename = "cold-cases-solved.json"
+        total = self._author_total(conf["contributions"], ctx.author.id)
+        rank = self._rank_name(conf, total)
+        to_next, next_name = self._points_to_next(conf, total)
+        line = f"🕵️ You have **{total}** point{'' if total == 1 else 's'} — **{rank}**."
+        if to_next is not None:
+            line += f" {to_next} to go until **{next_name}**."
         else:
-            data = self._render_markdown(ctx.guild, solved)
-            filename = "cold-cases-solved.md"
-
-        file = discord.File(io.BytesIO(data.encode("utf-8")), filename=filename)
-        await ctx.send(
-            f"🗄️ **{len(solved)}** solved case{'s' if len(solved) != 1 else ''}. "
-            f"Review and merge into your vault, then clear with `[p]case clearsolved`.",
-            file=file,
-        )
-
-    def _render_markdown(self, guild, solved) -> str:
-        blocks = []
-        for c in solved:
-            sol = c["solution"]
-            solvers = [
-                guild.get_member(uid).display_name if guild.get_member(uid) else str(uid)
-                for uid in c.get("solved_by", [])
-            ]
-            fm = [
-                "---",
-                "status: identified",
-                f"case: {c['id']}",
-                f"title: {sol.get('title', '')}",
-                f"distributor: {sol.get('distributor', '')}",
-                f"catalog: {sol.get('catalog', '')}",
-                f"year: {sol.get('year', '')}",
-                f"image: {c.get('image_file') or ''}",
-                f"solved_by: [{', '.join(solvers)}]",
-                f"solved_on: {(c.get('solved_at') or '')[:10]}",
-                "---",
-            ]
-            body = [f"# {sol.get('title', 'Unknown')} (Cold Case #{c['id']})"]
-            if sol.get("notes"):
-                body.append(f"\n{sol['notes']}")
-            leads = c.get("leads", [])
-            if leads:
-                body.append("\n## Leads")
-                body.extend(f"- ({ld['name']}) {ld['text']}" for ld in leads)
-            blocks.append("\n".join(fm) + "\n\n" + "\n".join(body))
-        return "\n\n---\n\n".join(blocks) + "\n"
-
-    @casefile.command(name="clearsolved")
-    @_detective_check()
-    async def case_clearsolved(self, ctx: commands.Context):
-        """Remove exported (solved) cases from storage. Ask before deleting."""
-        cases = await self.config.guild(ctx.guild).cases()
-        solved_ids = [cid for cid, c in cases.items() if c["status"] == "solved"]
-        if not solved_ids:
-            await ctx.send("No solved cases to clear.")
-            return
-        view = ConfirmView(ctx.author, timeout=30, disable_buttons=True)
-        view.message = await ctx.send(
-            f"⚠️ Remove **{len(solved_ids)}** solved case(s) from storage? "
-            "Make sure you've exported them first. This can't be undone.",
-            view=view,
-        )
-        await view.wait()
-        if not view.result:
-            await ctx.send("Cancelled.")
-            return
-        async with self.config.guild(ctx.guild).cases() as cases:
-            for cid in solved_ids:
-                fname = cases[cid].get("image_file")
-                if fname:
-                    path = self._image_dir(ctx.guild) / fname
-                    path.unlink(missing_ok=True)
-                del cases[cid]
-        await ctx.send(f"🧹 Cleared **{len(solved_ids)}** solved case(s).")
+            line += " That's the top rank — nice work."
+        await ctx.send(line, ephemeral=True)
 
     # ── Settings ─────────────────────────────────────────────────────────
 
-    @casefile.group(name="set", invoke_without_command=True)
+    @commands.guild_only()
+    @commands.group(name="caseset")
     @commands.admin_or_permissions(manage_guild=True)
-    async def case_set(self, ctx: commands.Context):
-        """Configure CaseFiles (admin / Manage Server only)."""
+    async def caseset(self, ctx: commands.Context):
+        """Configure the VHS Detectives case board."""
         await ctx.send_help(ctx.command)
 
-    @case_set.command(name="channel")
-    @commands.admin_or_permissions(manage_guild=True)
-    async def set_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
-        """Set the channel where cases are served and leads collected."""
+    @caseset.command(name="channel")
+    async def caseset_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
+        """Set the channel cases are posted in (omit to clear)."""
         await self.config.guild(ctx.guild).case_channel.set(channel.id if channel else None)
         await ctx.send(
-            f"Cases will be served in {channel.mention}." if channel else "Case channel cleared."
+            f"Cases will live in {channel.mention}." if channel else "Case channel cleared."
         )
 
-    @case_set.command(name="intake")
-    @commands.admin_or_permissions(manage_guild=True)
-    async def set_intake(self, ctx: commands.Context, channel: discord.TextChannel = None):
-        """Set the intake channel (drop tape images here for `ingest`)."""
-        await self.config.guild(ctx.guild).intake_channel.set(channel.id if channel else None)
+    @caseset.command(name="adminrole")
+    async def caseset_adminrole(self, ctx: commands.Context, role: discord.Role = None):
+        """Set a role (besides Manage Server) whose reactions count as stamps."""
+        await self.config.guild(ctx.guild).admin_role.set(role.id if role else None)
         await ctx.send(
-            f"Intake channel set to {channel.mention}." if channel else "Intake channel cleared."
+            f"Stamp role set to **{role.name}**." if role
+            else "Stamp role cleared (Manage Server only)."
         )
 
-    @case_set.command(name="role")
-    @commands.admin_or_permissions(manage_guild=True)
-    async def set_role(self, ctx: commands.Context, role: discord.Role = None):
-        """Set the Detective role allowed to run/solve cases (omit to clear)."""
-        await self.config.guild(ctx.guild).detective_role.set(role.id if role else None)
-        await ctx.send(
-            f"Detective role set to **{role.name}**." if role
-            else "Detective role cleared (Manage Server only)."
-        )
-
-    @case_set.command(name="autoadvance")
-    @commands.admin_or_permissions(manage_guild=True)
-    async def set_autoadvance(self, ctx: commands.Context, on_off: bool):
-        """Toggle automatically serving the next case after a solve/skip."""
-        await self.config.guild(ctx.guild).auto_advance.set(on_off)
-        await ctx.send(f"Auto-advance {'on' if on_off else 'off'}.")
-
-    @case_set.command(name="captureall")
-    @commands.admin_or_permissions(manage_guild=True)
-    async def set_captureall(self, ctx: commands.Context, on_off: bool):
-        """Toggle logging every case-channel message as a lead (vs replies only)."""
-        await self.config.guild(ctx.guild).capture_all.set(on_off)
-        await ctx.send(
-            "Capturing all messages in the case channel as leads."
-            if on_off else "Only direct replies to the case will be logged as leads."
-        )
-
-    @case_set.command(name="show", aliases=["settings"])
-    @commands.admin_or_permissions(manage_guild=True)
-    async def set_show(self, ctx: commands.Context):
-        """Show the current CaseFiles settings."""
+    @caseset.command(name="show", aliases=["settings"])
+    async def caseset_show(self, ctx: commands.Context):
+        """Show the current settings."""
         c = await self.config.guild(ctx.guild).all()
-        case_channel = ctx.guild.get_channel(c["case_channel"]) if c["case_channel"] else None
-        intake = ctx.guild.get_channel(c["intake_channel"]) if c["intake_channel"] else None
-        role = ctx.guild.get_role(c["detective_role"]) if c["detective_role"] else None
-        lines = [
-            f"**Case channel:** {case_channel.mention if case_channel else 'not set'}",
-            f"**Intake channel:** {intake.mention if intake else 'not set'}",
-            f"**Detective role:** {role.mention if role else 'Manage Server only'}",
-            f"**Auto-advance:** {'on' if c['auto_advance'] else 'off'}",
-            f"**Capture all as leads:** {'on' if c['capture_all'] else 'off'}",
-            f"**Active case:** {c['active_id'] or '—'}",
-        ]
-        await ctx.send(
-            embed=discord.Embed(
-                title="🗂️ CaseFiles Settings",
-                description="\n".join(lines),
-                color=discord.Color.dark_gold(),
-            )
-        )
+        channel = ctx.guild.get_channel(c["case_channel"]) if c["case_channel"] else None
+        role = ctx.guild.get_role(c["admin_role"]) if c["admin_role"] else None
+        emoji = " · ".join(f"{e} = {p}" for e, p in c["stamp_emoji"].items())
+        ranks = ", ".join(f"{r['name']} ({r['points']})" for r in c["ranks"])
+        active = c["active_case"] or "—"
+        embed = discord.Embed(title="🗂️ VHS Detectives Settings", color=discord.Color.gold())
+        embed.add_field(name="Case channel", value=channel.mention if channel else "not set", inline=False)
+        embed.add_field(name="Stamp role", value=role.mention if role else "Manage Server only", inline=False)
+        embed.add_field(name="Stamps", value=emoji, inline=False)
+        embed.add_field(name="Active case", value=active, inline=False)
+        embed.add_field(name="Ranks", value=ranks, inline=False)
+        await ctx.send(embed=embed)
