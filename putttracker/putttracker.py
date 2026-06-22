@@ -422,67 +422,84 @@ class PuttTracker(commands.Cog):
     # columns align; names there are raw but backtick-sanitised).
 
     @staticmethod
-    def _truncate(text: str, width: int) -> str:
-        return text if len(text) <= width else text[: width - 1] + "…"
-
-    @classmethod
-    def _table_name(cls, name: str, had_restart) -> str:
+    def _table_name(name: str, had_restart) -> str:
         # Backticks would break the surrounding code fence; swap them out.
-        nm = cls._truncate(name.replace("`", "'"), 13)
-        return nm + ("*" if had_restart else "")
+        # Names are shown in full — no truncation.
+        return name.replace("`", "'") + ("*" if had_restart else "")
 
     @staticmethod
-    def _podium_lines(rows: list) -> list:
-        """Top-three medal lines; name at index 0, restart flag at index 4."""
-        esc = discord.utils.escape_markdown
+    def _visual_len(text: str) -> int:
+        """Approximate display width; emoji occupy ~two monospace cells."""
+        return sum(2 if ord(c) >= 0x1F000 else 1 for c in text)
+
+    @classmethod
+    def _center(cls, line: str, width: int) -> str:
+        """Pad ``line`` with leading spaces to centre it within ``width``."""
+        pad = max(0, (width - cls._visual_len(line)) // 2)
+        return " " * pad + line
+
+    @staticmethod
+    def _podium_plain(rows: list) -> list:
+        """Top-three medal lines as plain text (for the code block)."""
         if not rows:
             return []
 
         def tag(i):
-            return f"{MEDALS[i]} **{esc(rows[i][0])}**{RESTART_MARK if rows[i][4] else ''}"
+            name = rows[i][0].replace("`", "'")
+            return f"{MEDALS[i]} {name}{'*' if rows[i][4] else ''}"
 
         out = [tag(0)]
         if len(rows) >= 3:
-            out.append(f"{tag(1)}   {tag(2)}")
+            out.append(f"{tag(1)}    {tag(2)}")
         elif len(rows) == 2:
             out.append(tag(1))
         return out
 
     def _rank_board_parts(self, rows: list):
         """Returns ``(podium_lines, table_lines, any_restart)`` for a rank board."""
-        header = f"{'#':<3}{'Player':<15}{'Rounds':>7}{'Total':>7}{'Avg':>7}"
+        names = [self._table_name(r[0], r[4]) for r in rows]
+        name_w = max([len("Player"), *(len(n) for n in names)])
+        width = 3 + name_w + 21  # Rounds/Total/Avg columns are 7 wide each
+        header = f"{'#':<3}{'Player':<{name_w}}{'Rounds':>7}{'Total':>7}{'Avg':>7}"
         table = [header]
         any_restart = False
         for i, (name, rounds, total_rel, avg, had_restart) in enumerate(rows, 1):
             any_restart = any_restart or had_restart
-            nm = self._table_name(name, had_restart)
             table.append(
-                f"{i:<3}{nm:<15}{rounds:>7}{_fmt_rel(total_rel):>7}{avg:>+7.1f}"
+                f"{i:<3}{names[i-1]:<{name_w}}{rounds:>7}"
+                f"{_fmt_rel(total_rel):>7}{avg:>+7.1f}"
             )
-        return self._podium_lines(rows), table, any_restart
+        podium = [self._center(line, width) for line in self._podium_plain(rows)]
+        return podium, table, any_restart
 
     def _day_board_parts(self, day_rows: list):
         """Returns ``(podium_lines, table_lines, any_restart)`` for a daily board."""
-        header = f"{'#':<3}{'Player':<15}{'Score':>7}{'+/-':>6}"
+        names = [self._table_name(r[0], r[4]) for r in day_rows]
+        name_w = max([len("Player"), *(len(n) for n in names)])
+        width = 3 + name_w + 13  # Score column is 7 wide, +/- is 6
+        header = f"{'#':<3}{'Player':<{name_w}}{'Score':>7}{'+/-':>6}"
         table = [header]
         any_restart = False
         for i, (name, strokes, par, relative, restarts) in enumerate(day_rows, 1):
             any_restart = any_restart or bool(restarts)
-            nm = self._table_name(name, restarts)
             table.append(
-                f"{i:<3}{nm:<15}{f'{strokes}/{par}':>7}{_fmt_rel(relative):>6}"
+                f"{i:<3}{names[i-1]:<{name_w}}{f'{strokes}/{par}':>7}"
+                f"{_fmt_rel(relative):>6}"
             )
-        return self._podium_lines(day_rows), table, any_restart
+        podium = [self._center(line, width) for line in self._podium_plain(day_rows)]
+        return podium, table, any_restart
 
     @staticmethod
     def _board_description(podium_lines, table_lines, any_restart) -> str:
-        parts = []
+        inner = []
         if podium_lines:
-            parts.append("\n".join(podium_lines))
-        parts.append("```\n" + "\n".join(table_lines) + "\n```")
+            inner.extend(podium_lines)
+            inner.append("")  # blank line between podium and table
+        inner.extend(table_lines)
+        desc = "```\n" + "\n".join(inner) + "\n```"
         if any_restart:
-            parts.append(RESTART_NOTE)
-        return "\n".join(parts)
+            desc += "\n" + RESTART_NOTE
+        return desc
 
     async def _send_board(self, ctx, title, podium_lines, table_lines, any_restart):
         """Send a podium + monospace-table board, paginating the table by rows.
@@ -505,14 +522,15 @@ class PuttTracker(commands.Cog):
         total = len(chunks)
 
         for idx, chunk in enumerate(chunks):
-            block = "```\n" + "\n".join([header] + chunk) + "\n```"
-            desc_parts = []
+            inner = []
             if idx == 0 and podium_lines:
-                desc_parts.append("\n".join(podium_lines))
-            desc_parts.append(block)
+                inner.extend(podium_lines)
+                inner.append("")  # blank line between podium and table
+            inner.append(header)
+            inner.extend(chunk)
+            desc = "```\n" + "\n".join(inner) + "\n```"
             if idx == total - 1 and any_restart:
-                desc_parts.append(RESTART_NOTE)
-            desc = "\n".join(desc_parts)
+                desc += "\n" + RESTART_NOTE
             heading = title if total == 1 else f"{title} ({idx + 1}/{total})"
             if use_embed:
                 await ctx.send(embed=discord.Embed(
