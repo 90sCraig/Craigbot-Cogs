@@ -121,7 +121,8 @@ def _safe_tz(name: str):
     return _resolve_tz(name) or timezone.utc
 
 
-NAME_CAP = 18  # cap on leaderboard usernames so the table stays mobile-friendly
+NAME_CAP = 10  # cap on table usernames so the board stays mobile-friendly
+               # (the podium shows the top three in full)
 
 
 def _truncate(text: str, width: int) -> str:
@@ -453,7 +454,9 @@ class PuttTracker(commands.Cog):
             return []
 
         def tag(i):
-            name = _truncate(rows[i][0].replace("`", "'"), NAME_CAP)
+            # Podium shows names in full (only the code-fence-breaking
+            # backticks are swapped out).
+            name = rows[i][0].replace("`", "'")
             return f"{MEDALS[i]} {name}{'*' if rows[i][4] else ''}"
 
         out = [tag(0)]
@@ -467,15 +470,15 @@ class PuttTracker(commands.Cog):
         """Returns ``(podium_lines, table_lines, any_restart)`` for a rank board."""
         names = [self._table_name(r[0], r[4]) for r in rows]
         name_w = max([len("Player"), *(len(n) for n in names)])
-        width = 3 + name_w + 21  # Rounds/Total/Avg columns are 7 wide each
-        header = f"{'#':<3}{'Player':<{name_w}}{'Rounds':>7}{'Total':>7}{'Avg':>7}"
+        width = 3 + name_w + 19  # Rounds=7, Total=6, Avg=6
+        header = f"{'#':<3}{'Player':<{name_w}}{'Rounds':>7}{'Total':>6}{'Avg':>6}"
         table = [header]
         any_restart = False
         for i, (name, rounds, total_rel, avg, had_restart) in enumerate(rows, 1):
             any_restart = any_restart or had_restart
             table.append(
                 f"{i:<3}{names[i-1]:<{name_w}}{rounds:>7}"
-                f"{_fmt_rel(total_rel):>7}{avg:>+7.1f}"
+                f"{_fmt_rel(total_rel):>6}{avg:>+6.1f}"
             )
         podium = [self._center(line, width) for line in self._podium_plain(rows)]
         return podium, table, any_restart
