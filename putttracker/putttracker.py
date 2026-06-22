@@ -269,12 +269,13 @@ class PuttTracker(commands.Cog):
             return
 
         totals = self._totals_from_scores(week_data)
-        lines = self._leaderboard_lines(self._rank_rows(guild, totals))
-        if not lines:
+        rows = self._rank_rows(guild, totals)
+        if not rows:
             return
+        podium, table, any_restart = self._rank_board_parts(rows)
         embed = discord.Embed(
             title=f"🏆 putt.day Weekly Results — {last_week_key}",
-            description="\n".join(lines),
+            description=self._board_description(podium, table, any_restart),
             color=discord.Color.gold(),
         )
         try:
@@ -336,25 +337,26 @@ class PuttTracker(commands.Cog):
 
         # Reply to a newly recorded score with that day's updated leaderboard.
         if not duplicate and await self.config.guild(message.guild).auto_board():
-            lines = self._day_lines(message.guild, weeks, day_key)
+            day_rows = self._day_rows(message.guild, weeks, day_key)
+            podium, table, any_restart = self._day_board_parts(day_rows)
             await self._reply_board(
-                message, f"⛳ Day #{day_num} Leaderboard", lines
+                message, f"⛳ Day #{day_num} Leaderboard", podium, table, any_restart
             )
 
-    async def _reply_board(self, message: discord.Message, title: str, lines: list):
-        """Reply to ``message`` with a leaderboard embed (text fallback)."""
-        if not lines:
+    async def _reply_board(self, message, title, podium_lines, table_lines, any_restart):
+        """Reply to ``message`` with a board (podium + table), text fallback."""
+        if not table_lines or len(table_lines) <= 1:
             return
-        body = "\n".join(lines)
+        desc = self._board_description(podium_lines, table_lines, any_restart)
         perms = message.channel.permissions_for(message.guild.me)
         try:
             if perms.embed_links:
                 embed = discord.Embed(
-                    title=title, description=body, color=discord.Color.gold()
+                    title=title, description=desc, color=discord.Color.gold()
                 )
                 await message.reply(embed=embed, mention_author=False)
             else:
-                await message.reply(f"**{title}**\n{body}", mention_author=False)
+                await message.reply(f"**{title}**\n{desc}", mention_author=False)
         except discord.HTTPException:
             pass
 
@@ -377,7 +379,7 @@ class PuttTracker(commands.Cog):
         """Resolve member names and sort ``{uid: {rounds, total_rel, restarts}}``.
 
         Sorted by average relative to par (lowest = best), with total then
-        round count as tie-breakers. Returns
+        round count as tie-breakers. Returns the raw (unescaped) member name as
         ``(name, rounds, total_rel, avg, had_restart)``.
         """
         rows = []
@@ -386,7 +388,7 @@ class PuttTracker(commands.Cog):
             if not rounds:
                 continue
             member = guild.get_member(int(uid))
-            name = discord.utils.escape_markdown(member.display_name) if member else f"User {uid}"
+            name = member.display_name if member else f"User {uid}"
             avg_rel = data["total_rel"] / rounds
             rows.append(
                 (name, rounds, data["total_rel"], avg_rel, data.get("restarts", 0) > 0)
@@ -395,63 +397,129 @@ class PuttTracker(commands.Cog):
         rows.sort(key=lambda r: (r[3], r[2], -r[1]))
         return rows
 
-    @staticmethod
-    def _leaderboard_lines(rows: list) -> list:
-        """Format ranked rows into display lines with medals."""
-        lines = []
-        any_restart = False
-        for i, (name, rounds, total_rel, avg_rel, had_restart) in enumerate(rows):
-            prefix = MEDALS[i] if i < len(MEDALS) else f"`{i + 1}.`"
-            mark = RESTART_MARK if had_restart else ""
-            any_restart = any_restart or had_restart
-            lines.append(
-                f"{prefix} **{name}**{mark} · {rounds} round{'s' if rounds != 1 else ''} "
-                f"· total {_fmt_rel(total_rel)} · avg {avg_rel:+.1f}"
-            )
-        if any_restart:
-            lines.append(RESTART_NOTE)
-        return lines
-
-    def _build_leaderboard(self, ctx, totals: dict) -> list:
-        """Convenience: rank + format a leaderboard for a command context."""
-        return self._leaderboard_lines(self._rank_rows(ctx.guild, totals))
-
-    def _day_lines(self, guild, weeks: dict, day_key: str) -> list:
-        """Build the single-day leaderboard lines for ``day_key``.
+    def _day_rows(self, guild, weeks: dict, day_key: str) -> list:
+        """Rows for a single day: ``(name, strokes, par, relative, restarts)``.
 
         Sorted by relative to par (lowest = best), then strokes.
         """
-        rows = []  # (name, strokes, par, relative, restarts)
+        rows = []
         for week_data in weeks.values():
             for uid, entry in week_data.items():
                 score = entry["scores"].get(day_key)
                 if score is None:
                     continue
                 member = guild.get_member(int(uid))
-                name = discord.utils.escape_markdown(member.display_name) if member else f"User {uid}"
+                name = member.display_name if member else f"User {uid}"
                 rows.append(
-                    (
-                        name,
-                        score["strokes"],
-                        score["par"],
-                        score["relative"],
-                        score.get("restarts", 0),
-                    )
+                    (name, score["strokes"], score["par"],
+                     score["relative"], score.get("restarts", 0))
                 )
-
         rows.sort(key=lambda r: (r[3], r[1]))
-        lines = []
+        return rows
+
+    # Board rendering: a 🥇🥈🥉 podium (in normal embed text, so names can be
+    # bold + markdown-escaped) above a monospace table (in a code block, so the
+    # columns align; names there are raw but backtick-sanitised).
+
+    @staticmethod
+    def _truncate(text: str, width: int) -> str:
+        return text if len(text) <= width else text[: width - 1] + "…"
+
+    @classmethod
+    def _table_name(cls, name: str, had_restart) -> str:
+        # Backticks would break the surrounding code fence; swap them out.
+        nm = cls._truncate(name.replace("`", "'"), 13)
+        return nm + ("*" if had_restart else "")
+
+    @staticmethod
+    def _podium_lines(rows: list) -> list:
+        """Top-three medal lines; name at index 0, restart flag at index 4."""
+        esc = discord.utils.escape_markdown
+        if not rows:
+            return []
+
+        def tag(i):
+            return f"{MEDALS[i]} **{esc(rows[i][0])}**{RESTART_MARK if rows[i][4] else ''}"
+
+        out = [tag(0)]
+        if len(rows) >= 3:
+            out.append(f"{tag(1)}   {tag(2)}")
+        elif len(rows) == 2:
+            out.append(tag(1))
+        return out
+
+    def _rank_board_parts(self, rows: list):
+        """Returns ``(podium_lines, table_lines, any_restart)`` for a rank board."""
+        header = f"{'#':<3}{'Player':<15}{'R':>2}{'Tot':>6}{'Avg':>7}"
+        table = [header]
         any_restart = False
-        for i, (name, strokes, par, relative, restarts) in enumerate(rows):
-            prefix = MEDALS[i] if i < len(MEDALS) else f"`{i + 1}.`"
-            mark = RESTART_MARK if restarts else ""
-            any_restart = any_restart or bool(restarts)
-            lines.append(
-                f"{prefix} **{name}** · {strokes}/{par} · {_fmt_rel(relative)}{mark}"
+        for i, (name, rounds, total_rel, avg, had_restart) in enumerate(rows, 1):
+            any_restart = any_restart or had_restart
+            nm = self._table_name(name, had_restart)
+            table.append(
+                f"{i:<3}{nm:<15}{rounds:>2}{_fmt_rel(total_rel):>6}{avg:>+7.1f}"
             )
+        return self._podium_lines(rows), table, any_restart
+
+    def _day_board_parts(self, day_rows: list):
+        """Returns ``(podium_lines, table_lines, any_restart)`` for a daily board."""
+        header = f"{'#':<3}{'Player':<15}{'Score':>7}{'+/-':>6}"
+        table = [header]
+        any_restart = False
+        for i, (name, strokes, par, relative, restarts) in enumerate(day_rows, 1):
+            any_restart = any_restart or bool(restarts)
+            nm = self._table_name(name, restarts)
+            table.append(
+                f"{i:<3}{nm:<15}{f'{strokes}/{par}':>7}{_fmt_rel(relative):>6}"
+            )
+        return self._podium_lines(day_rows), table, any_restart
+
+    @staticmethod
+    def _board_description(podium_lines, table_lines, any_restart) -> str:
+        parts = []
+        if podium_lines:
+            parts.append("\n".join(podium_lines))
+        parts.append("```\n" + "\n".join(table_lines) + "\n```")
         if any_restart:
-            lines.append(RESTART_NOTE)
-        return lines
+            parts.append(RESTART_NOTE)
+        return "\n".join(parts)
+
+    async def _send_board(self, ctx, title, podium_lines, table_lines, any_restart):
+        """Send a podium + monospace-table board, paginating the table by rows.
+
+        Each page is a complete code block (the fence never splits), the podium
+        rides the first page, and the restart legend the last. Falls back to
+        plain text when embeds aren't available.
+        """
+        use_embed = await ctx.embed_requested()
+        header, data = table_lines[0], table_lines[1:]
+        budget = 1800  # keep each code block comfortably under Discord limits
+        chunks, cur, cur_len = [], [], len(header)
+        for line in data:
+            if cur and cur_len + len(line) + 1 > budget:
+                chunks.append(cur)
+                cur, cur_len = [], len(header)
+            cur.append(line)
+            cur_len += len(line) + 1
+        chunks.append(cur)
+        total = len(chunks)
+
+        for idx, chunk in enumerate(chunks):
+            block = "```\n" + "\n".join([header] + chunk) + "\n```"
+            desc_parts = []
+            if idx == 0 and podium_lines:
+                desc_parts.append("\n".join(podium_lines))
+            desc_parts.append(block)
+            if idx == total - 1 and any_restart:
+                desc_parts.append(RESTART_NOTE)
+            desc = "\n".join(desc_parts)
+            heading = title if total == 1 else f"{title} ({idx + 1}/{total})"
+            if use_embed:
+                await ctx.send(embed=discord.Embed(
+                    title=heading, description=desc, color=await ctx.embed_color()
+                ))
+            else:
+                await ctx.send(f"**{heading}**\n{desc}")
 
     # ── Commands ──────────────────────────────────────────────────────
 
@@ -477,8 +545,10 @@ class PuttTracker(commands.Cog):
             return
 
         totals = self._totals_from_scores(week_data)
-        lines = self._build_leaderboard(ctx, totals)
-        await self._send_embed(ctx, f"⛳ Weekly Leaderboard — {iso_week}", lines)
+        podium, table, any_restart = self._rank_board_parts(self._rank_rows(ctx.guild, totals))
+        await self._send_board(
+            ctx, f"⛳ Weekly Leaderboard — {iso_week}", podium, table, any_restart
+        )
 
     @putt.command(name="daily", aliases=["today", "d"])
     async def putt_daily(self, ctx: commands.Context, when: str = "today"):
@@ -509,14 +579,15 @@ class PuttTracker(commands.Cog):
             return
 
         target_day = max(all_days) - offset
-        lines = self._day_lines(ctx.guild, weeks, str(target_day))
-        if not lines:
+        day_rows = self._day_rows(ctx.guild, weeks, str(target_day))
+        if not day_rows:
             await ctx.send(
                 f"No scores recorded for **{label.lower()}** (Day #{target_day})."
             )
             return
-        await self._send_embed(
-            ctx, f"⛳ {label}'s Leaderboard — Day #{target_day}", lines
+        podium, table, any_restart = self._day_board_parts(day_rows)
+        await self._send_board(
+            ctx, f"⛳ {label}'s Leaderboard — Day #{target_day}", podium, table, any_restart
         )
 
     @putt.command(name="overall", aliases=["alltime", "o"])
@@ -535,8 +606,8 @@ class PuttTracker(commands.Cog):
                 totals[uid]["total_rel"] += sum(s["relative"] for s in scores)
                 totals[uid]["restarts"] += sum(s.get("restarts", 0) for s in scores)
 
-        lines = self._build_leaderboard(ctx, totals)
-        await self._send_embed(ctx, "⛳ All-Time Leaderboard", lines)
+        podium, table, any_restart = self._rank_board_parts(self._rank_rows(ctx.guild, totals))
+        await self._send_board(ctx, "⛳ All-Time Leaderboard", podium, table, any_restart)
 
     @putt.command(name="myscore", aliases=["me", "m"])
     async def putt_myscore(self, ctx: commands.Context):

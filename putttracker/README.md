@@ -14,13 +14,20 @@ When a member posts their daily putt.day result, the bot detects it, records the
 
 Each day can only be logged **once per member**. If someone posts the same putt.day result again — even in a later week — it is ignored and the bot reacts with 🔁 instead of ⛳, so scores can't be accidentally counted twice.
 
-Leaderboards are shown as clean Discord embeds, for example:
+Leaderboards are shown as a 🥇🥈🥉 podium above an aligned monospace table, sorted by average relative to par (lower is better). For example:
 
 > ⛳ **Weekly Leaderboard — 2026-W25**
-> 🥇 **Craig** · 5 rounds · total -3 · avg -0.6
-> 🥈 **Dave** · 5 rounds · total +2 · avg +0.4
-> 🥉 **Sam** · 4 rounds · total +8 · avg +2.0
-> `4.` **Pat** · 3 rounds · total +15 · avg +5.0
+> 🥇 **Craig**   🥈 **Dave**   🥉 **Sam**
+> ```
+> #  Player          R   Tot    Avg
+> 1  Craig           5    -3   -0.6
+> 2  Dave            5    +2   +0.4
+> 3  Sam             4    +8   +2.0
+> 4  Pat*            3   +15   +5.0
+> ```
+> \* = used a restart
+
+Columns are **R** (rounds), **Tot** (total relative to par) and **Avg** (average per round). The daily board uses the same layout with **Score** (strokes/par) and **+/-** columns instead.
 
 ### How scores are detected
 
