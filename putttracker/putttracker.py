@@ -450,14 +450,14 @@ class PuttTracker(commands.Cog):
 
     def _rank_board_parts(self, rows: list):
         """Returns ``(podium_lines, table_lines, any_restart)`` for a rank board."""
-        header = f"{'#':<3}{'Player':<15}{'R':>2}{'Tot':>6}{'Avg':>7}"
+        header = f"{'#':<3}{'Player':<15}{'Rounds':>7}{'Total':>7}{'Avg':>7}"
         table = [header]
         any_restart = False
         for i, (name, rounds, total_rel, avg, had_restart) in enumerate(rows, 1):
             any_restart = any_restart or had_restart
             nm = self._table_name(name, had_restart)
             table.append(
-                f"{i:<3}{nm:<15}{rounds:>2}{_fmt_rel(total_rel):>6}{avg:>+7.1f}"
+                f"{i:<3}{nm:<15}{rounds:>7}{_fmt_rel(total_rel):>7}{avg:>+7.1f}"
             )
         return self._podium_lines(rows), table, any_restart
 

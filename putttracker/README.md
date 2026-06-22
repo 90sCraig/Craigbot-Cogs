@@ -19,15 +19,15 @@ Leaderboards are shown as a 🥇🥈🥉 podium above an aligned monospace table
 > ⛳ **Weekly Leaderboard — 2026-W25**
 > 🥇 **Craig**   🥈 **Dave**   🥉 **Sam**
 > ```
-> #  Player          R   Tot    Avg
-> 1  Craig           5    -3   -0.6
-> 2  Dave            5    +2   +0.4
-> 3  Sam             4    +8   +2.0
-> 4  Pat*            3   +15   +5.0
+> #  Player          Rounds  Total    Avg
+> 1  Craig                5     -3   -0.6
+> 2  Dave                 5     +2   +0.4
+> 3  Sam                  4     +8   +2.0
+> 4  Pat*                 3    +15   +5.0
 > ```
 > \* = used a restart
 
-Columns are **R** (rounds), **Tot** (total relative to par) and **Avg** (average per round). The daily board uses the same layout with **Score** (strokes/par) and **+/-** columns instead.
+Columns are **Rounds**, **Total** (total relative to par) and **Avg** (average per round). The daily board uses the same layout with **Score** (strokes/par) and **+/-** columns instead.
 
 ### How scores are detected
 
