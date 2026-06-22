@@ -1,5 +1,6 @@
 {
   "name": "PuttTracker",
+  "requirements": ["tzdata"],
   "short": "Track putt.day scores with weekly and overall leaderboards.",
   "description": "Parses putt.day score posts from Discord messages and maintains weekly and all-time leaderboards. Auto-detects scores, dedupes by day number, and shows rankings sorted by average relative to par.",
   "end_user_data_statement": "This cog stores Discord user IDs and putt.day scores (strokes, par, relative). No other personal data is collected.",

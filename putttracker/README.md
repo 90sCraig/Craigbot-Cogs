@@ -43,7 +43,7 @@ Only the day number and **strokes/par** are read. The score relative to par is c
 Notes:
 - Each member's score for a given day is recorded **once, ever** — reposting the same day (in any week) is ignored, so totals can't be inflated. The bot reacts 🔁 on an ignored repost.
 - Scores are tracked **per server**. Each guild has its own independent leaderboard.
-- Weeks are grouped by ISO week (e.g. `2026-W25`).
+- Weeks are grouped by ISO week (e.g. `2026-W25`), using the server's configured timezone (see [Timezone](#timezone) — defaults to UTC).
 - The day a score belongs to comes from the putt.day number in the post (e.g. `#36`), not from when the message was sent. "Today" is the latest day number recorded; "yesterday" is the one before it.
 - Leaderboards are sent as embeds when the bot has the **Embed Links** permission; otherwise it falls back to formatted text automatically.
 
@@ -132,6 +132,7 @@ Permanently delete **all** putt.day scores for the current server. Shows **Confi
 PuttTracker can post a daily reminder to play and announce last week's winner. All settings are per server and configured under `[p]putt set` (admin / Manage Server only). Set a channel first:
 
 ```
+[p]putt set timezone eastern       # timezone the leaderboard WEEK follows (see below)
 [p]putt set autoboard on           # reply with the day's leaderboard on each new score
 [p]putt set channel #putt-day      # where reminders/announcements are posted
 [p]putt set reminder on            # enable the daily reminder
@@ -142,8 +143,18 @@ PuttTracker can post a daily reminder to play and announce last week's winner. A
 [p]putt set show                   # view current settings
 ```
 
+### Timezone
+
+By default the weekly leaderboard groups scores by **UTC** ISO week, which means the week rolls over at midnight UTC — i.e. on **Sunday evening** for the Americas, splitting a single day's scores across two weeks. Set your community's timezone so the week rolls over at your local Sunday→Monday midnight instead:
+
+```
+[p]putt set timezone America/New_York   # or a shortcut: eastern / central / mountain / pacific
+```
+
+Accepts any IANA timezone name. When you change it, **existing scores are automatically re-filed** into the correct weeks (each score remembers when it was posted), so nothing is lost. Only the **weekly** view and weekly announcement are affected — daily and all-time leaderboards are unchanged.
+
 Notes:
-- Times are in **UTC**. The daily reminder fires once per day at or after the set time.
+- **Reminder/announcement times** (`set time`, `set weeklytime`) are always in **UTC**; only the leaderboard *week boundary* follows `set timezone`. The daily reminder fires once per day at or after the set time.
 - The daily reminder automatically includes a link to <https://putt.day> after your message text.
 - The weekly announcement posts once at the start of a new ISO week (Monday), at or after the configured weekly time, showing the previous week's leaderboard.
 - If a feature is enabled without a channel set, nothing is posted until you set one.

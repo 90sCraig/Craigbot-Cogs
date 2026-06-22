@@ -16,6 +16,11 @@ import re
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # Python < 3.9
+    ZoneInfo = None
+
 import discord
 from discord.ext import tasks
 from redbot.core import commands, Config
@@ -68,6 +73,54 @@ def _parse_hhmm(value: str):
     return None
 
 
+# Friendly aliases for the timezones people actually ask for.
+_TZ_SHORTCUTS = {
+    "utc": "UTC",
+    "eastern": "America/New_York", "et": "America/New_York",
+    "est": "America/New_York", "edt": "America/New_York",
+    "central": "America/Chicago", "ct": "America/Chicago",
+    "cst": "America/Chicago", "cdt": "America/Chicago",
+    "mountain": "America/Denver", "mt": "America/Denver",
+    "mst": "America/Denver", "mdt": "America/Denver",
+    "pacific": "America/Los_Angeles", "pt": "America/Los_Angeles",
+    "pst": "America/Los_Angeles", "pdt": "America/Los_Angeles",
+}
+
+
+def _resolve_tz(name: str):
+    """Return a tzinfo for ``name``, or ``None`` if it can't be resolved.
+
+    Accepts IANA names (``America/New_York``) and the shortcuts above. The
+    IANA database comes from the stdlib's ``zoneinfo`` plus the ``tzdata``
+    package (a cog requirement), so it works even on Windows hosts that lack a
+    system timezone database.
+    """
+    if not name:
+        return None
+    canonical = _TZ_SHORTCUTS.get(name.strip().lower(), name.strip())
+    if canonical.upper() == "UTC":
+        return timezone.utc
+    if ZoneInfo is None:
+        return None
+    try:
+        return ZoneInfo(canonical)
+    except Exception:
+        return None
+
+
+def _canonical_tz_name(name: str):
+    """Map a user-supplied tz to its canonical IANA name, or ``None``."""
+    if not name:
+        return None
+    canonical = _TZ_SHORTCUTS.get(name.strip().lower(), name.strip())
+    return "UTC" if canonical.upper() == "UTC" else canonical
+
+
+def _safe_tz(name: str):
+    """Like :func:`_resolve_tz` but always returns a tz (UTC as a fallback)."""
+    return _resolve_tz(name) or timezone.utc
+
+
 class PuttTracker(commands.Cog):
     """Track putt.day scores with weekly and overall leaderboards."""
 
@@ -80,6 +133,7 @@ class PuttTracker(commands.Cog):
         # (member names can only be resolved within the guild they belong to).
         self.config.register_guild(
             weeks={},
+            timezone="UTC",               # IANA tz; week buckets follow this
             auto_board=True,              # reply with the day board on a new score
             announce_channel=None,        # channel id for reminders/announcements
             daily_reminder=False,         # post a "play today" reminder
@@ -118,6 +172,45 @@ class PuttTracker(commands.Cog):
                 if changed:
                     for wk in [k for k, v in weeks.items() if not v]:
                         del weeks[wk]
+
+    async def _rebucket_weeks(self, guild, tz):
+        """Re-file every stored score into the week bucket for timezone ``tz``.
+
+        Each score keeps its own ``timestamp`` (UTC), so we can recompute which
+        ISO week it belongs to under the new timezone and rebuild the ``weeks``
+        map from scratch. Per-user totals are recomputed from the scores, so
+        this also self-heals any drifted totals. Scores missing a timestamp
+        stay in their existing bucket. Returns the number of weeks afterwards.
+        """
+        async with self.config.guild(guild).weeks() as weeks:
+            rebuilt = {}
+            for old_week, members in weeks.items():
+                for uid, entry in members.items():
+                    for day_key, score in entry.get("scores", {}).items():
+                        ts = score.get("timestamp")
+                        target_week = old_week
+                        if ts:
+                            try:
+                                dt = datetime.fromisoformat(ts)
+                                if dt.tzinfo is None:
+                                    dt = dt.replace(tzinfo=timezone.utc)
+                                target_week = _week_key(dt.astimezone(tz))
+                            except ValueError:
+                                pass
+                        bucket = rebuilt.setdefault(target_week, {})
+                        member = bucket.setdefault(
+                            uid,
+                            {"scores": {}, "total_strokes": 0, "total_par": 0, "rounds": 0},
+                        )
+                        if day_key in member["scores"]:
+                            continue  # a member logs each day once; guard anyway
+                        member["scores"][day_key] = score
+                        member["total_strokes"] += score["strokes"]
+                        member["total_par"] += score["par"]
+                        member["rounds"] += 1
+            weeks.clear()
+            weeks.update(rebuilt)
+            return len(rebuilt)
 
     # ── Scheduler ─────────────────────────────────────────────────────
 
@@ -158,7 +251,8 @@ class PuttTracker(commands.Cog):
 
     async def _maybe_weekly_announce(self, guild, channel, conf, now):
         """Announce last week's winner once, after the week rolls over."""
-        last_week_key = _week_key(now - timedelta(weeks=1))
+        local_now = now.astimezone(_safe_tz(conf.get("timezone", "UTC")))
+        last_week_key = _week_key(local_now - timedelta(weeks=1))
         if conf.get("last_weekly_week") == last_week_key:
             return
 
@@ -205,7 +299,8 @@ class PuttTracker(commands.Cog):
         restarts = int(rmatch.group(1)) if rmatch else 0
 
         now = datetime.now(timezone.utc)
-        iso_week = _week_key(now)
+        tz = _safe_tz(await self.config.guild(message.guild).timezone())
+        iso_week = _week_key(now.astimezone(tz))
         uid = str(message.author.id)
         day_key = str(day_num)
 
@@ -291,7 +386,7 @@ class PuttTracker(commands.Cog):
             if not rounds:
                 continue
             member = guild.get_member(int(uid))
-            name = member.display_name if member else f"User {uid}"
+            name = discord.utils.escape_markdown(member.display_name) if member else f"User {uid}"
             avg_rel = data["total_rel"] / rounds
             rows.append(
                 (name, rounds, data["total_rel"], avg_rel, data.get("restarts", 0) > 0)
@@ -333,7 +428,7 @@ class PuttTracker(commands.Cog):
                 if score is None:
                     continue
                 member = guild.get_member(int(uid))
-                name = member.display_name if member else f"User {uid}"
+                name = discord.utils.escape_markdown(member.display_name) if member else f"User {uid}"
                 rows.append(
                     (
                         name,
@@ -372,7 +467,8 @@ class PuttTracker(commands.Cog):
 
         Use a negative offset for past weeks (e.g. `putt weekly -1`).
         """
-        target = datetime.now(timezone.utc) + timedelta(weeks=week_offset)
+        tz = _safe_tz(await self.config.guild(ctx.guild).timezone())
+        target = datetime.now(tz) + timedelta(weeks=week_offset)
         iso_week = _week_key(target)
 
         week_data = (await self.config.guild(ctx.guild).weeks()).get(iso_week, {})
@@ -529,6 +625,9 @@ class PuttTracker(commands.Cog):
         relative = strokes - par
         uid = str(member.id)
         day_key = str(day)
+        iso_week = _week_key(
+            datetime.now(_safe_tz(await self.config.guild(ctx.guild).timezone()))
+        )
 
         async with self.config.guild(ctx.guild).weeks() as weeks:
             existing = None
@@ -545,7 +644,7 @@ class PuttTracker(commands.Cog):
                 old.update(strokes=strokes, par=par, relative=relative, restarts=restarts)
                 action = "Updated"
             else:
-                week = weeks.setdefault(_week_key(datetime.now(timezone.utc)), {})
+                week = weeks.setdefault(iso_week, {})
                 entry = week.setdefault(
                     uid,
                     {"scores": {}, "total_strokes": 0, "total_par": 0, "rounds": 0},
@@ -665,6 +764,32 @@ class PuttTracker(commands.Cog):
         await self.config.guild(ctx.guild).weekly_time.set(f"{hour:02d}:{minute:02d}")
         await ctx.send(f"Weekly announcement time set to {hour:02d}:{minute:02d} UTC.")
 
+    @putt_set.command(name="timezone", aliases=["tz"])
+    @commands.admin_or_permissions(manage_guild=True)
+    async def set_timezone(self, ctx: commands.Context, *, name: str):
+        """Set the timezone the leaderboard week follows (default UTC).
+
+        Accepts IANA names like `America/New_York` or shortcuts like
+        `eastern`, `central`, `mountain`, `pacific`. Existing scores are
+        automatically re-filed into the right weeks for the new timezone.
+        """
+        canonical = _canonical_tz_name(name)
+        if canonical is None or _resolve_tz(name) is None:
+            await ctx.send(
+                f"I don't recognise the timezone `{name}`. Try an IANA name like "
+                f"`America/New_York`, or `eastern` / `central` / `mountain` / `pacific`. "
+                f"(If IANA names fail, the bot host may need `pip install tzdata`.)"
+            )
+            return
+        await self.config.guild(ctx.guild).timezone.set(canonical)
+        async with ctx.typing():
+            week_count = await self._rebucket_weeks(ctx.guild, _safe_tz(canonical))
+        await ctx.send(
+            f"🕔 Leaderboard timezone set to **{canonical}**. "
+            f"Re-filed existing scores across {week_count} week(s). "
+            f"`{ctx.clean_prefix}putt weekly` now reflects your local week."
+        )
+
     @putt_set.command(name="message")
     @commands.admin_or_permissions(manage_guild=True)
     async def set_message(self, ctx: commands.Context, *, text: str):
@@ -702,6 +827,7 @@ class PuttTracker(commands.Cog):
             else None
         )
         lines = [
+            f"**Timezone:** {conf['timezone']}",
             f"**Auto leaderboard reply:** {'on' if conf['auto_board'] else 'off'}",
             f"**Channel:** {channel.mention if channel else 'not set'}",
             f"**Daily reminder:** {'on' if conf['daily_reminder'] else 'off'}",
