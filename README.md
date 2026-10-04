@@ -1,6 +1,6 @@
 # Craigbot-Cogs
 
-This repository contains a collection of cogs used by Craigbot, a Discord bot. These cogs are forked from other repositories and customized to fit the needs of Craigbot. Each cog adds unique functionality to enhance the capabilities of your bot.
+Craigbot-Cogs is an independent collection of Red-DiscordBot cogs owned and maintained by 90sCraig. It contains original and commissioned cogs developed specifically for Craigbot rather than mirrors of cogs maintained in other repositories.
 
 ## Installation
 
@@ -28,27 +28,23 @@ To add these cogs to your Discord bot instance, follow the steps below. Make sur
 
 Here are some of the cogs available in this repository:
 
-- **MovieDB**: Provides commands to interact with The Movie Database (TMDb), allowing users to search for movies, TV shows, and more.
 - **Tierlists**: A cog for users to vote on items in a list, which are then ranked by tiers divided by percentiles based on up/down votes.
-- **Dictionary**: Provides dictionary and thesaurus functionalities, allowing users to look up word definitions, synonyms, and antonyms.
-- **Giveaways**: Manage and run giveaways on your Discord server. Features include customizable giveaway duration, participant requirements, and automatic winner selection.
 - **Quote**: Create an image from a replied message showing the text and the author's avatar.
 - **PuttTracker**: Automatically tracks putt.day scores posted in your server and maintains daily, weekly, and all-time leaderboards, with optional daily reminders and weekly winner announcements.
 - **Community**: Quiet, peer-driven recognition — members star great messages and thank each other, and the bot celebrates it all in a single warm monthly recap. A subtle alternative to grindy leveling systems.
 - **CaseFiles**: Crowdsource the gaps in your tape archive. Serves unidentified tapes to a channel one at a time, collects the community's leads, credits whoever cracks each one, and exports solved cases as an Obsidian-ready file to merge back into your vault.
+- **Spotlight**: Keep time-limited announcements visible with an active list, scheduled reminders, automatic expiry, and quiet-channel duplicate suppression.
 
 ## Documentation
 
 Learn more about each cog in their respective guides:
 
-- [MovieDB](./moviedb/README.md)
 - [Tierlists](./tierlists/README.md)
-- [Dictionary](./dictionary/README.md)
-- [Giveaways](./giveaways/README.md)
 - [Quote](./quote/README.md)
 - [PuttTracker](./putttracker/README.md)
 - [Community](./community/README.md)
 - [CaseFiles](./casefiles/README.md)
+- [Spotlight](./spotlight/README.md)
 
 ## Contact
 
@@ -57,14 +53,9 @@ If you encounter any issues, bugs, or have suggestions for improvements, feel fr
 - **GitHub Issues**: [Open an issue](https://github.com/90sCraig/Craigbot-Cogs/issues)
 - **Discord**: Join our community on Discord at [Craigbot Support](https://discord.gg/7ympDwSEqA)
 
-## Credits
+## Ownership and contributions
 
-This repository wouldn't be possible without the work of the original authors. Special thanks to:
-
-- [owocado](https://github.com/owocado) for the original [MovieDB cog](https://github.com/owocado/MovieDB-cog).
-- [i-am-zaidali](https://github.com/i-am-zaidali) for the original [Tierlists cog](https://github.com/i-am-zaidali/bounty-cogs/tree/main).
-- [AAA3A-AAA3A](https://github.com/AAA3A-AAA3A) for the original [Dictionary cog](https://github.com/AAA3A-AAA3A/AAA3A-cogs).
-- [flaree](https://github.com/flaree) for the original [Giveaways cog](https://github.com/flaree/flare-cogs).
+The cogs in this repository are owned by 90sCraig. Individual contributors are credited in the relevant cog metadata and documentation. Tierlists was commissioned by 90sCraig and developed by i-am-zaidali.
 
 ## License
 

@@ -127,4 +127,4 @@ If you haven't added this repository before, let's add it first. We'll call it "
 
 ## Credit
 
-This cog is a fork of the original [Tierlists cog](https://github.com/i-am-zaidali/bounty-cogs/tree/main) by [i-am-zaidali](https://github.com/i-am-zaidali).
+Tierlists was commissioned by 90sCraig and developed by [i-am-zaidali](https://github.com/i-am-zaidali).
