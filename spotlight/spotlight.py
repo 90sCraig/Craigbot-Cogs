@@ -322,12 +322,18 @@ class Spotlight(commands.Cog):
         ]
         if other_files:
             embed.add_field(name="Attachments", value="\n".join(other_files)[:1024], inline=False)
-        embed.add_field(
-            name="\u200b",
-            value=f"[Original announcement]({item['source_url']}) • `{item['id']}`",
-            inline=False,
-        )
         return embed
+
+    @staticmethod
+    def _build_source_view(item):
+        view = discord.ui.View(timeout=None)
+        view.add_item(
+            discord.ui.Button(
+                label=f"Original announcement • {item['id']}",
+                url=item["source_url"],
+            )
+        )
+        return view
 
     async def _destination(self, guild, conf, item):
         channel_id = conf.get("destination_channel") or item["source_channel_id"]
@@ -370,6 +376,7 @@ class Spotlight(commands.Cog):
                 ended=ended,
                 strip_custom_emojis=conf.get("strip_custom_emojis", False),
             ),
+            view=self._build_source_view(live_item),
             allowed_mentions=allowed,
         )
 
@@ -476,7 +483,8 @@ class Spotlight(commands.Cog):
                 embed=self._build_embed(
                     item,
                     strip_custom_emojis=conf.get("strip_custom_emojis", False),
-                )
+                ),
+                view=self._build_source_view(item),
             )
 
     @commands.guild_only()
@@ -545,6 +553,16 @@ class Spotlight(commands.Cog):
                                 break
                         if item_id is not None:
                             break
+                    if item_id is None:
+                        for row in referenced_message.components:
+                            for component in getattr(row, "children", ()):
+                                label = getattr(component, "label", "") or ""
+                                match = _SPOTLIGHT_ID_RE.search(label)
+                                if match and match.group(0).upper() in conf["items"]:
+                                    item_id = match.group(0).upper()
+                                    break
+                            if item_id is not None:
+                                break
         if not item_id or item_id not in conf["items"]:
             await ctx.send(
                 f"I couldn't find that active Spotlight. Use `{ctx.clean_prefix}spotlight` "
