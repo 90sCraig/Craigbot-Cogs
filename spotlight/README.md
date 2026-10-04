@@ -6,7 +6,14 @@ Administrators promote an existing message instead of retyping it. Spotlight pre
 
 ## Setup
 
-Install and load the cog, then run `[p]slash sync` once so Discord shows the message action:
+Install and load the cog, then enable and sync its message action:
+
+```text
+[p]slash enable "Add to Spotlight" message
+[p]slash sync
+```
+
+Red manages message actions separately from prefix commands, so syncing before enabling the action will report zero commands.
 
 1. Right-click or long-press an announcement.
 2. Choose **Apps → Add to Spotlight**.

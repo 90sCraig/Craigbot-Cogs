@@ -4,5 +4,5 @@
   "short": "Keep important announcements visible without flooding chat.",
   "description": "Administrators can promote an existing message into a time-limited Spotlight. The cog periodically reposts active announcements, skips redundant reminders in quiet channels, provides an on-demand active list, and retires announcements automatically.",
   "end_user_data_statement": "This cog stores the content and metadata of messages that server administrators add to Spotlight, including the original author's Discord user ID and display name. Deleting that user's data removes their active Spotlights.",
-  "install_msg": "Spotlight loaded. Run `[p]slash sync` once to expose the **Add to Spotlight** message action, then configure defaults with `[p]spotlightset`."
+  "install_msg": "Spotlight loaded. Run `[p]slash enable \"Add to Spotlight\" message`, followed by `[p]slash sync`, to expose the message action. Then configure defaults with `[p]spotlightset`."
 }
