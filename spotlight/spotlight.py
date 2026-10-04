@@ -13,6 +13,7 @@ log = logging.getLogger("red.craigbot.spotlight")
 
 _DURATION_RE = re.compile(r"^\s*(\d+)\s*([mhdw])\s*$", re.IGNORECASE)
 _CUSTOM_EMOJI_RE = re.compile(r"<a?:[A-Za-z0-9_]+:\d+>")
+_SPOTLIGHT_ID_RE = re.compile(r"\bSPOT-\d+\b", re.IGNORECASE)
 _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 
 
@@ -295,9 +296,12 @@ class Spotlight(commands.Cog):
         if len(content) > 3800:
             content = content[:3799] + "…"
 
-        title = "Spotlight ended" if ended else "Spotlight"
         color = discord.Color.dark_grey() if ended else discord.Color.gold()
-        embed = discord.Embed(title=title, description=content, color=color)
+        embed = discord.Embed(
+            title="Ended" if ended else None,
+            description=content,
+            color=color,
+        )
         embed.set_author(
             name=item.get("author_name") or "Original author",
             icon_url=item.get("author_avatar") or None,
@@ -305,12 +309,7 @@ class Spotlight(commands.Cog):
         embed.add_field(
             name="Ended" if ended else "Ends",
             value=f"<t:{timestamp}:F>\n<t:{timestamp}:R>",
-            inline=True,
-        )
-        embed.add_field(
-            name="Original announcement",
-            value=f"[View message]({item['source_url']})",
-            inline=True,
+            inline=False,
         )
         image = self._image_url(item)
         if image:
@@ -323,7 +322,11 @@ class Spotlight(commands.Cog):
         ]
         if other_files:
             embed.add_field(name="Attachments", value="\n".join(other_files)[:1024], inline=False)
-        embed.set_footer(text=item["id"])
+        embed.add_field(
+            name="\u200b",
+            value=f"[Original announcement]({item['source_url']}) • `{item['id']}`",
+            inline=False,
+        )
         return embed
 
     async def _destination(self, guild, conf, item):
@@ -532,15 +535,16 @@ class Spotlight(commands.Cog):
                     except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                         referenced_message = None
                 if referenced_message is not None:
-                    item_id = next(
-                        (
-                            embed.footer.text.upper()
-                            for embed in referenced_message.embeds
-                            if embed.footer.text
-                            and embed.footer.text.upper() in conf["items"]
-                        ),
-                        None,
-                    )
+                    for embed in referenced_message.embeds:
+                        texts = [getattr(embed.footer, "text", "") or ""]
+                        texts.extend(str(field.value) for field in embed.fields)
+                        for text in texts:
+                            match = _SPOTLIGHT_ID_RE.search(text)
+                            if match and match.group(0).upper() in conf["items"]:
+                                item_id = match.group(0).upper()
+                                break
+                        if item_id is not None:
+                            break
         if not item_id or item_id not in conf["items"]:
             await ctx.send(
                 f"I couldn't find that active Spotlight. Use `{ctx.clean_prefix}spotlight` "
