@@ -414,7 +414,42 @@ class Spotlight(commands.Cog):
         conf = await self.config.guild(ctx.guild).all()
         items = sorted(conf["items"].values(), key=lambda item: item["ends_at"])
         if not items:
-            await ctx.send("There are no active Spotlights.")
+            prefix = ctx.clean_prefix
+            embed = discord.Embed(
+                title="Spotlight quick start",
+                description=(
+                    "There are no active Spotlights yet. Spotlight keeps important, "
+                    "time-limited announcements visible without repeatedly pinning them."
+                ),
+                color=discord.Color.gold(),
+            )
+            embed.add_field(
+                name="Add an announcement (admins)",
+                value=(
+                    "**Easiest:** Right-click or long-press the announcement, then choose "
+                    "**Apps → Add to Spotlight**.\n"
+                    f"**Command:** Reply to the announcement with `{prefix}spotlight add 7d` "
+                    "(durations such as `48h` and `2w` also work)."
+                ),
+                inline=False,
+            )
+            embed.add_field(
+                name="View active Spotlights",
+                value=(
+                    f"Run `{prefix}spotlight` or `{prefix}spotlight list`. Each entry shows "
+                    "its time remaining and a link to the original announcement."
+                ),
+                inline=False,
+            )
+            embed.add_field(
+                name="Configuration and help (admins)",
+                value=(
+                    f"Run `{prefix}spotlightset show` to see this server's settings, or "
+                    f"`{prefix}help spotlight` for all Spotlight commands."
+                ),
+                inline=False,
+            )
+            await ctx.send(embed=embed)
             return
         for item in items:
             await ctx.send(embed=self._build_embed(item))
