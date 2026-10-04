@@ -40,7 +40,7 @@ Only server administrators can add, end, or configure Spotlights.
 | Command | Purpose |
 | --- | --- |
 | `[p]spotlight add <duration>` | Add the message being replied to. Durations such as `30m`, `48h`, `7d`, or `2w` are measured from the original post. |
-| `[p]spotlight end [ID]` | End a Spotlight by ID, or by replying to its source/latest reminder. |
+| `[p]spotlight end [ID]` | End a Spotlight by ID, or by replying to its source, reminder, or active-list card. |
 | `[p]spotlightset show` | Show the server's settings. |
 | `[p]spotlightset channel [#channel]` | Use one destination, or omit it to repost in each source channel. |
 | `[p]spotlightset timezone <zone>` | Set an IANA timezone, such as `America/New_York`. |

@@ -495,12 +495,13 @@ class Spotlight(commands.Cog):
     @spotlight.command(name="end")
     @commands.admin()
     async def spotlight_end(self, ctx, item_id: str = None):
-        """End a Spotlight by ID, or by replying to its source/reminder."""
+        """End a Spotlight by ID, or by replying to its source or Spotlight card."""
         conf = await self.config.guild(ctx.guild).all()
         if item_id:
             item_id = item_id.upper()
         elif ctx.message.reference and ctx.message.reference.message_id:
-            replied = ctx.message.reference.message_id
+            reference = ctx.message.reference
+            replied = reference.message_id
             item_id = next(
                 (
                     key
@@ -510,6 +511,23 @@ class Spotlight(commands.Cog):
                 ),
                 None,
             )
+            if item_id is None:
+                referenced_message = reference.resolved
+                if not isinstance(referenced_message, discord.Message):
+                    try:
+                        referenced_message = await ctx.channel.fetch_message(replied)
+                    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                        referenced_message = None
+                if referenced_message is not None:
+                    item_id = next(
+                        (
+                            embed.footer.text.upper()
+                            for embed in referenced_message.embeds
+                            if embed.footer.text
+                            and embed.footer.text.upper() in conf["items"]
+                        ),
+                        None,
+                    )
         if not item_id or item_id not in conf["items"]:
             await ctx.send(
                 f"I couldn't find that active Spotlight. Use `{ctx.clean_prefix}spotlight` "
