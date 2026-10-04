@@ -6,9 +6,8 @@ from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import discord
-from discord import app_commands
 from discord.ext import tasks
-from redbot.core import Config, commands
+from redbot.core import Config, app_commands, commands
 
 log = logging.getLogger("red.craigbot.spotlight")
 
