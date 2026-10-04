@@ -45,8 +45,8 @@ def _parse_bool(value, default):
     raise ValueError("Use yes or no.")
 
 
-def _parse_end(value, timezone_name):
-    """Parse a duration (7d, 48h) or local date/time into a UTC datetime."""
+def _parse_end(value, timezone_name, *, duration_base=None):
+    """Parse a duration from its base time, or an absolute local date/time."""
     value = value.strip()
     match = _DURATION_RE.fullmatch(value)
     if match:
@@ -60,7 +60,7 @@ def _parse_end(value, timezone_name):
             "d": timedelta(days=amount),
             "w": timedelta(weeks=amount),
         }[unit]
-        return _utcnow() + delta
+        return (duration_base or _utcnow()) + delta
 
     local_zone = _safe_zone(timezone_name)
     for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
@@ -81,7 +81,7 @@ class AddSpotlightModal(discord.ui.Modal):
         self.message = message
 
         self.ends = discord.ui.TextInput(
-            label="Ends in / at",
+            label="Duration from original post / ends at",
             placeholder="7d or 2026-10-11 21:00",
             required=True,
             max_length=32,
@@ -231,8 +231,17 @@ class Spotlight(commands.Cog):
     ):
         guild = message.guild
         conf = await self.config.guild(guild).all()
-        ends_at = _parse_end(ends_text, conf["timezone"])
+        ends_at = _parse_end(
+            ends_text,
+            conf["timezone"],
+            duration_base=message.created_at,
+        )
         if ends_at <= _utcnow():
+            if _DURATION_RE.fullmatch(ends_text.strip()):
+                raise ValueError(
+                    f"`{ends_text}` is measured from the original post, so it has already "
+                    "ended. Use a longer duration or a future date."
+                )
             raise ValueError("The ending time must be in the future.")
 
         days = reminder_days or conf["reminder_days"]
@@ -428,7 +437,8 @@ class Spotlight(commands.Cog):
                     "**Easiest:** Right-click or long-press the announcement, then choose "
                     "**Apps → Add to Spotlight**.\n"
                     f"**Command:** Reply to the announcement with `{prefix}spotlight add 7d` "
-                    "(durations such as `48h` and `2w` also work)."
+                    "(`7d` means seven days after the original post; durations such as "
+                    "`48h` and `2w` also work)."
                 ),
                 inline=False,
             )
@@ -467,7 +477,7 @@ class Spotlight(commands.Cog):
     @spotlight.command(name="add")
     @commands.admin()
     async def spotlight_add(self, ctx, ends: str):
-        """Add the replied-to message for a duration such as `7d` or `48h`."""
+        """Add the replied-to message; durations are measured from the original post."""
         reference = ctx.message.reference
         if reference is None or reference.message_id is None:
             await ctx.send("Reply to the announcement you want to add, then run this command.")

@@ -10,7 +10,7 @@ Install and load the cog, then run `[p]slash sync` once so Discord shows the mes
 
 1. Right-click or long-press an announcement.
 2. Choose **Apps → Add to Spotlight**.
-3. Enter a duration such as `7d`, or a local ending time such as `2026-10-11 21:00`.
+3. Enter a duration such as `7d` (measured from the original post), or a local ending time such as `2026-10-11 21:00`.
 4. Optionally override the reminder interval, role mention, or ended notice.
 
 The prefix-command fallback is to reply to the announcement with:
@@ -32,7 +32,7 @@ Only server administrators can add, end, or configure Spotlights.
 
 | Command | Purpose |
 | --- | --- |
-| `[p]spotlight add <duration>` | Add the message being replied to. Supports `30m`, `48h`, `7d`, or `2w`. |
+| `[p]spotlight add <duration>` | Add the message being replied to. Durations such as `30m`, `48h`, `7d`, or `2w` are measured from the original post. |
 | `[p]spotlight end [ID]` | End a Spotlight by ID, or by replying to its source/latest reminder. |
 | `[p]spotlightset show` | Show the server's settings. |
 | `[p]spotlightset channel [#channel]` | Use one destination, or omit it to repost in each source channel. |
