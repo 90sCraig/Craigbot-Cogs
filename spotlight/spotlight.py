@@ -12,6 +12,7 @@ from redbot.core import Config, app_commands, commands
 log = logging.getLogger("red.craigbot.spotlight")
 
 _DURATION_RE = re.compile(r"^\s*(\d+)\s*([mhdw])\s*$", re.IGNORECASE)
+_CUSTOM_EMOJI_RE = re.compile(r"<a?:[A-Za-z0-9_]+:\d+>")
 _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 
 
@@ -148,6 +149,7 @@ class Spotlight(commands.Cog):
             mention_role=None,
             mention_default=False,
             end_announce=True,
+            strip_custom_emojis=False,
             counter=0,
             items={},
         )
@@ -279,13 +281,15 @@ class Spotlight(commands.Cog):
             source_embed.get("thumbnail") or {}
         ).get("url")
 
-    def _build_embed(self, item, *, ended=False):
+    def _build_embed(self, item, *, ended=False, strip_custom_emojis=False):
         timestamp = int(item["ends_at"])
         content = item.get("content", "").strip()
         source_embed = item.get("source_embed") or {}
         if not content:
             parts = [source_embed.get("title", ""), source_embed.get("description", "")]
             content = "\n\n".join(part for part in parts if part)
+        if strip_custom_emojis:
+            content = _CUSTOM_EMOJI_RE.sub("", content).strip()
         if not content:
             content = "*This announcement has no text.*"
         if len(content) > 3800:
@@ -358,7 +362,11 @@ class Spotlight(commands.Cog):
                 allowed = discord.AllowedMentions(roles=[role])
         return await channel.send(
             content=content,
-            embed=self._build_embed(live_item, ended=ended),
+            embed=self._build_embed(
+                live_item,
+                ended=ended,
+                strip_custom_emojis=conf.get("strip_custom_emojis", False),
+            ),
             allowed_mentions=allowed,
         )
 
@@ -461,7 +469,12 @@ class Spotlight(commands.Cog):
             await ctx.send(embed=embed)
             return
         for item in items:
-            await ctx.send(embed=self._build_embed(item))
+            await ctx.send(
+                embed=self._build_embed(
+                    item,
+                    strip_custom_emojis=conf.get("strip_custom_emojis", False),
+                )
+            )
 
     @commands.guild_only()
     @commands.hybrid_group(name="spotlight", invoke_without_command=True)
@@ -560,6 +573,8 @@ class Spotlight(commands.Cog):
             f"Mention role: {role.mention if role else 'none'}\n"
             f"Mention by default: **{'on' if conf['mention_default'] else 'off'}**\n"
             f"Ended announcement: **{'on' if conf['end_announce'] else 'off'}**\n"
+            f"Strip custom emojis: "
+            f"**{'on' if conf.get('strip_custom_emojis', False) else 'off'}**\n"
             f"Active Spotlights: **{len(conf['items'])}**"
         )
 
@@ -623,3 +638,12 @@ class Spotlight(commands.Cog):
         """Set whether new Spotlights announce when they end by default."""
         await self.config.guild(ctx.guild).end_announce.set(enabled)
         await ctx.send(f"Ended announcements are now **{'on' if enabled else 'off'}** by default.")
+
+    @spotlightset.command(name="stripemojis")
+    async def spotlightset_stripemojis(self, ctx, enabled: bool):
+        """Choose whether custom Discord emojis are removed from Spotlight cards."""
+        await self.config.guild(ctx.guild).strip_custom_emojis.set(enabled)
+        await ctx.send(
+            f"Custom Discord emojis will now be **{'removed' if enabled else 'kept'}** "
+            "in Spotlight cards. Standard Unicode emoji are unaffected."
+        )

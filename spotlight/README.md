@@ -49,12 +49,14 @@ Only server administrators can add, end, or configure Spotlights.
 | `[p]spotlightset mentionrole [@role]` | Set or clear the optional role that reminders may mention. |
 | `[p]spotlightset mentiondefault <on/off>` | Choose whether new Spotlights mention that role by default. Off initially. |
 | `[p]spotlightset endannounce <on/off>` | Choose whether new Spotlights announce when they end. |
+| `[p]spotlightset stripemojis <on/off>` | Remove custom Discord emojis from Spotlight cards while preserving standard Unicode emoji. |
 
 ## Reminder behavior
 
 - Multiple Spotlights may be active at once.
 - Each Spotlight expires automatically.
 - Role mentions are disabled by default.
+- Custom Discord emojis can be stripped when the bot cannot render emojis from another server; standard Unicode emoji are left unchanged.
 - If a Spotlight's previous reminder is still the newest message in its destination channel, the next reminder is skipped. Once conversation resumes, the due reminder can appear without stacking duplicate posts in a quiet channel.
 - Server defaults apply to new Spotlights, and the message-action form can override the interval, mention, and ended-notice choices per announcement.
 
