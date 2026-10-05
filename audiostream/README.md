@@ -8,7 +8,7 @@ This is voice playback, not Discord screen sharing or video broadcasting. FFmpeg
 
 - FFmpeg must be installed on the same computer as the bot and available on its PATH.
 - The Red instance must have voice support (`PyNaCl`).
-- The bot needs **View Channel**, **Connect**, and **Speak** in the destination channel. On a stage channel it also needs permission to become a speaker, or a moderator must invite it to speak.
+- The bot needs **View Channel**, **Connect**, **Speak**, and **Send Messages** in the destination channel. On a stage channel it also needs permission to become a speaker, or a moderator must invite it to speak.
 
 ## Setup
 
@@ -33,9 +33,12 @@ Run `[p]audiostream` (or `[p]localstream`) and use the interactive controls:
 1. Select a local media file.
 2. Select a voice or stage channel.
 3. Choose **Play now** or **Choose start time**.
-4. Enter `YYYY-MM-DD HH:MM`, `in 10m`, `in 2h`, or `now`.
+4. Optionally enter a message to post in the voice channel's text chat when playback starts.
+5. For scheduled playback, enter `YYYY-MM-DD HH:MM`, `in 10m`, `in 2h`, or `now`.
 
 Scheduled jobs survive bot restarts. If the bot restarts during playback, that playback cannot resume from its previous position.
+
+AudioStream retains the 100 most recent playback results per server. History records the file, voice channel, optional chat message, actual start and finish times, duration, and whether playback completed, was stopped, or failed.
 
 ## Commands
 
@@ -45,6 +48,7 @@ Scheduled jobs survive bot restarts. If the bot restarts during playback, that p
 | `[p]audiostream list` | Admin | List queued or active jobs. |
 | `[p]audiostream cancel <ID>` | Admin | Cancel a job that has not started. |
 | `[p]audiostream stop` | Admin | Stop current playback and disconnect. |
+| `[p]audiostream history [1-20]` | Admin | Show recent playback history, newest first. |
 | `[p]audiostreamserverset timezone <zone>` | Admin | Set the server's IANA timezone. |
 | `[p]audiostreamset folder <path>` | Bot owner | Set the permitted local media folder. |
 | `[p]audiostreamset show` | Bot owner | Check the folder, file count, and FFmpeg availability. |

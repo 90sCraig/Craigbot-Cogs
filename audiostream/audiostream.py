@@ -28,6 +28,7 @@ MEDIA_EXTENSIONS = {
     ".wma",
 }
 PAGE_SIZE = 25
+HISTORY_LIMIT = 100
 
 
 def _utcnow():
@@ -71,23 +72,41 @@ def _parse_start(value, timezone_name):
     return local.replace(tzinfo=_safe_zone(timezone_name)).astimezone(timezone.utc)
 
 
-class StartTimeModal(discord.ui.Modal):
-    def __init__(self, view):
-        super().__init__(title="Schedule audio playback", timeout=300)
-        self.picker = view
-        zone = _safe_zone(view.timezone_name)
-        example = (_utcnow() + timedelta(minutes=10)).astimezone(zone)
-        self.start_time = discord.ui.TextInput(
-            label=f"Start time ({view.timezone_name})"[:45],
-            placeholder=example.strftime("%Y-%m-%d %H:%M") + ", now, or in 10m",
-            required=True,
-            max_length=32,
+class PlaybackModal(discord.ui.Modal):
+    def __init__(self, view, *, play_now=False):
+        super().__init__(
+            title="Play audio now" if play_now else "Schedule audio playback",
+            timeout=300,
         )
-        self.add_item(self.start_time)
+        self.picker = view
+        self.play_now = play_now
+        self.start_time = None
+        if not play_now:
+            zone = _safe_zone(view.timezone_name)
+            example = (_utcnow() + timedelta(minutes=10)).astimezone(zone)
+            self.start_time = discord.ui.TextInput(
+                label=f"Start time ({view.timezone_name})"[:45],
+                placeholder=example.strftime("%Y-%m-%d %H:%M") + ", now, or in 10m",
+                required=True,
+                max_length=32,
+            )
+            self.add_item(self.start_time)
+        self.announcement = discord.ui.TextInput(
+            label="Voice channel chat message (optional)",
+            placeholder="Posted in the selected voice channel when playback starts",
+            style=discord.TextStyle.paragraph,
+            required=False,
+            max_length=2000,
+        )
+        self.add_item(self.announcement)
 
     async def on_submit(self, interaction):
         try:
-            start_at = _parse_start(str(self.start_time), self.picker.timezone_name)
+            start_at = (
+                _utcnow()
+                if self.play_now
+                else _parse_start(str(self.start_time), self.picker.timezone_name)
+            )
             if start_at < _utcnow() - timedelta(seconds=30):
                 raise ValueError("That time has already passed.")
             item_id = await self.picker.cog.create_job(
@@ -96,17 +115,19 @@ class StartTimeModal(discord.ui.Modal):
                 self.picker.selected_channel_id,
                 interaction.channel_id,
                 start_at,
+                announcement=str(self.announcement).strip() or None,
             )
         except ValueError as exc:
             await interaction.response.send_message(str(exc), ephemeral=True)
             return
 
-        self.picker.stop()
-        timestamp = int(start_at.timestamp())
-        await interaction.response.send_message(
-            f"Scheduled **{item_id}** for <t:{timestamp}:F> (<t:{timestamp}:R>).",
-            ephemeral=True,
-        )
+        if self.play_now:
+            message = f"Starting **{item_id}** now."
+        else:
+            timestamp = int(start_at.timestamp())
+            message = f"Scheduled **{item_id}** for <t:{timestamp}:F> (<t:{timestamp}:R>)."
+        await interaction.response.send_message(message, ephemeral=True)
+        await self.picker.finish_selection()
 
 
 class MediaPickerView(discord.ui.View):
@@ -186,7 +207,7 @@ class MediaPickerView(discord.ui.View):
         )
 
         async def schedule_callback(interaction):
-            await interaction.response.send_modal(StartTimeModal(self))
+            await interaction.response.send_modal(PlaybackModal(self))
 
         schedule_button.callback = schedule_callback
         self.add_item(schedule_button)
@@ -199,21 +220,7 @@ class MediaPickerView(discord.ui.View):
         )
 
         async def play_callback(interaction):
-            try:
-                item_id = await self.cog.create_job(
-                    interaction.guild,
-                    self.selected_file,
-                    self.selected_channel_id,
-                    interaction.channel_id,
-                    _utcnow(),
-                )
-            except ValueError as exc:
-                await interaction.response.send_message(str(exc), ephemeral=True)
-                return
-            self.stop()
-            await interaction.response.send_message(
-                f"Starting **{item_id}** now.", ephemeral=True
-            )
+            await interaction.response.send_modal(PlaybackModal(self, play_now=True))
 
         play_button.callback = play_callback
         self.add_item(play_button)
@@ -241,6 +248,16 @@ class MediaPickerView(discord.ui.View):
             self.add_item(previous)
             self.add_item(next_button)
 
+    async def finish_selection(self):
+        self.stop()
+        for item in self.children:
+            item.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
     async def on_timeout(self):
         for item in self.children:
             item.disabled = True
@@ -258,10 +275,12 @@ class AudioStream(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=20261005, force_registration=True)
         self.config.register_global(media_folder=None)
-        self.config.register_guild(timezone="UTC", counter=0, jobs={})
+        self.config.register_guild(timezone="UTC", counter=0, jobs={}, history=[])
         self._starting = set()
         self._play_tasks = set()
         self._locks = {}
+        self._active_jobs = {}
+        self._stop_requested = set()
         self.scheduler.start()
 
     def cog_unload(self):
@@ -320,7 +339,16 @@ class AudioStream(commands.Cog):
             raise ValueError("That media file is no longer available.")
         return candidate
 
-    async def create_job(self, guild, filename, channel_id, text_channel_id, start_at):
+    async def create_job(
+        self,
+        guild,
+        filename,
+        channel_id,
+        text_channel_id,
+        start_at,
+        *,
+        announcement=None,
+    ):
         await self._resolve_media(filename)
         channel = guild.get_channel(channel_id)
         if not isinstance(channel, (discord.VoiceChannel, discord.StageChannel)):
@@ -337,6 +365,7 @@ class AudioStream(commands.Cog):
                 "channel_id": channel_id,
                 "text_channel_id": text_channel_id,
                 "start_at": start_at.timestamp(),
+                "announcement": announcement,
             }
         return item_id
 
@@ -352,14 +381,36 @@ class AudioStream(commands.Cog):
         async with self.config.guild(guild).jobs() as jobs:
             jobs.pop(item_id, None)
 
+    async def _record_history(
+        self, guild, job, *, status, started_at=None, error=None
+    ):
+        entry = {
+            "id": job["id"],
+            "filename": job["filename"],
+            "channel_id": job["channel_id"],
+            "scheduled_at": job["start_at"],
+            "started_at": started_at,
+            "finished_at": _utcnow().timestamp(),
+            "status": status,
+            "error": str(error)[:300] if error else None,
+            "announcement": job.get("announcement"),
+        }
+        async with self.config.guild(guild).history() as history:
+            history.append(entry)
+            del history[:-HISTORY_LIMIT]
+
     async def _run_job(self, guild, item_id, job):
         key = (guild.id, item_id)
         lock = self._locks.setdefault(guild.id, asyncio.Lock())
         error = None
+        status = "failed"
+        failure_reason = None
+        started_at = None
         playback_started = False
         connected_by_us = False
         try:
             if lock.locked():
+                failure_reason = "another AudioStream job was active"
                 await self._notify(
                     guild,
                     job,
@@ -388,11 +439,6 @@ class AudioStream(commands.Cog):
                         except (discord.Forbidden, discord.HTTPException):
                             pass
 
-                await self._notify(
-                    guild,
-                    job,
-                    f"**{item_id}** is now playing **{job['filename']}** in {channel.mention}.",
-                )
                 finished = asyncio.Event()
                 playback_error = []
                 loop = asyncio.get_running_loop()
@@ -407,16 +453,49 @@ class AudioStream(commands.Cog):
                 )
                 voice.play(source, after=after_playback)
                 playback_started = True
+                started_at = _utcnow().timestamp()
+                self._active_jobs[guild.id] = item_id
+                await self._notify(
+                    guild,
+                    job,
+                    f"**{item_id}** is now playing **{job['filename']}** in {channel.mention}.",
+                )
+                announcement = job.get("announcement")
+                if announcement:
+                    try:
+                        await channel.send(announcement)
+                    except (discord.Forbidden, discord.HTTPException) as exc:
+                        log.warning(
+                            "Could not post the voice-chat message for %s in guild %s: %s",
+                            item_id,
+                            guild.id,
+                            exc,
+                        )
+                        await self._notify(
+                            guild,
+                            job,
+                            f"**{item_id}** started, but I couldn't post its message in "
+                            f"{channel.mention}. Check my Send Messages permission there.",
+                        )
                 await finished.wait()
                 if playback_error:
                     raise RuntimeError(str(playback_error[0]))
-                await self._notify(
-                    guild, job, f"**{item_id}** finished playing **{job['filename']}**."
-                )
+                if guild.id in self._stop_requested:
+                    status = "stopped"
+                    await self._notify(
+                        guild, job, f"**{item_id}** was stopped during **{job['filename']}**."
+                    )
+                else:
+                    status = "completed"
+                    await self._notify(
+                        guild, job, f"**{item_id}** finished playing **{job['filename']}**."
+                    )
         except asyncio.CancelledError:
+            failure_reason = "playback was interrupted while the cog was unloading"
             raise
         except Exception as exc:  # Discord/voice errors vary across supported versions.
             error = exc
+            failure_reason = str(exc)
             log.exception("Audio job %s failed in guild %s", item_id, guild.id)
             await self._notify(guild, job, f"**{item_id}** could not play: {exc}")
         finally:
@@ -426,8 +505,20 @@ class AudioStream(commands.Cog):
                     await voice.disconnect(force=True)
                 except (discord.ClientException, discord.HTTPException):
                     pass
-            await self._remove_job(guild, item_id)
-            self._starting.discard(key)
+            try:
+                await self._record_history(
+                    guild,
+                    job,
+                    status=status,
+                    started_at=started_at,
+                    error=failure_reason,
+                )
+            finally:
+                await self._remove_job(guild, item_id)
+                self._starting.discard(key)
+                self._stop_requested.discard(guild.id)
+                if self._active_jobs.get(guild.id) == item_id:
+                    self._active_jobs.pop(guild.id, None)
             if error:
                 log.info("Removed failed audio job %s", item_id)
 
@@ -443,6 +534,38 @@ class AudioStream(commands.Cog):
                 f"**{job['id']}** · `{filename}` · "
                 f"{channel.mention if channel else 'missing channel'} · <t:{timestamp}:F>"
             )
+        return lines
+
+    def _history_lines(self, guild, history):
+        icons = {"completed": "✅", "stopped": "⏹️", "failed": "⚠️"}
+        lines = []
+        for entry in reversed(history):
+            channel = guild.get_channel(entry.get("channel_id") or 0)
+            filename = entry.get("filename") or "Unknown file"
+            if len(filename) > 70:
+                filename = "…" + filename[-69:]
+            status = entry.get("status", "failed")
+            started_at = entry.get("started_at")
+            finished_at = entry.get("finished_at")
+            if started_at:
+                when = f"<t:{int(started_at)}:f>"
+                duration = max(0, int((finished_at or started_at) - started_at))
+                elapsed = f"{duration // 60}m {duration % 60}s"
+            else:
+                when = f"scheduled <t:{int(entry.get('scheduled_at', 0))}:f>"
+                elapsed = "not started"
+            line = (
+                f"{icons.get(status, '•')} **{entry.get('id', 'Unknown')}** · "
+                f"**{status.title()}** · `{filename}` · "
+                f"{channel.mention if channel else 'missing channel'} · "
+                f"{when} · {elapsed}"
+            )
+            if entry.get("announcement"):
+                announcement = " ".join(entry["announcement"].split())
+                line += f"\n↳ Message: {announcement[:180]}"
+            if entry.get("error"):
+                line += f"\n↳ {entry['error'][:180]}"
+            lines.append(line)
         return lines
 
     @commands.guild_only()
@@ -496,15 +619,54 @@ class AudioStream(commands.Cog):
             f"Cancelled **{item_id}**." if removed else "I couldn't find that scheduled job."
         )
 
+    @audiostream.command(name="history")
+    async def audiostream_history(self, ctx, limit: int = 10):
+        """Show recently completed, stopped, and failed playback attempts."""
+        if not 1 <= limit <= 20:
+            await ctx.send("Choose a history limit between 1 and 20.")
+            return
+        history = await self.config.guild(ctx.guild).history()
+        candidates = self._history_lines(ctx.guild, history)[0:limit]
+        if not candidates:
+            await ctx.send("AudioStream has no playback history yet.")
+            return
+        lines = []
+        description_length = 0
+        for line in candidates:
+            added_length = len(line) + (2 if lines else 0)
+            if description_length + added_length > 4000:
+                break
+            lines.append(line)
+            description_length += added_length
+        embed = discord.Embed(
+            title="AudioStream history",
+            description="\n\n".join(lines),
+            color=discord.Color.blurple(),
+        )
+        embed.set_footer(
+            text=(
+                f"Showing {len(lines)} of {len(history)} retained "
+                f"entr{'y' if len(history) == 1 else 'ies'}"
+            )
+        )
+        await ctx.send(embed=embed)
+
     @audiostream.command(name="stop")
     async def audiostream_stop(self, ctx):
         """Stop the current playback and disconnect the bot."""
         voice = ctx.guild.voice_client
-        if voice is None or not (voice.is_playing() or voice.is_paused()):
-            await ctx.send("This server has no active audio playback.")
+        if (
+            ctx.guild.id not in self._active_jobs
+            or voice is None
+            or not (voice.is_playing() or voice.is_paused())
+        ):
+            await ctx.send("This server has no active AudioStream playback.")
             return
+        self._stop_requested.add(ctx.guild.id)
         voice.stop()
-        await ctx.send("Stopped the current audio playback.")
+        await ctx.send(
+            f"Stopped **{self._active_jobs[ctx.guild.id]}**. It will appear in playback history."
+        )
 
     @commands.group(name="audiostreamset")
     @commands.is_owner()
