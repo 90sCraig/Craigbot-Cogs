@@ -130,10 +130,237 @@ class AddSpotlightModal(discord.ui.Modal):
             await interaction.followup.send(f"I couldn't add that Spotlight: {exc}", ephemeral=True)
             return
         await interaction.followup.send(
-            f"Added **{item_id}** to Spotlight. Use `/spotlight` or your prefix command "
-            "to view active announcements.",
+            f"Added **{item_id}** to Spotlight. Use `/spotlight admin` or your prefix "
+            "command to manage the schedule.",
             ephemeral=True,
         )
+
+
+class EditSpotlightModal(discord.ui.Modal):
+    def __init__(self, cog, guild, item_id, item, conf, manager=None):
+        super().__init__(title=f"Edit {item_id}", timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self.item_id = item_id
+        self.manager = manager
+
+        zone = _safe_zone(conf.get("timezone"))
+        ending = datetime.fromtimestamp(item["ends_at"], timezone.utc).astimezone(zone)
+        self.ends = discord.ui.TextInput(
+            label="Ends at (YYYY-MM-DD HH:MM)",
+            default=ending.strftime("%Y-%m-%d %H:%M"),
+            placeholder=f"Server timezone: {conf.get('timezone') or 'UTC'}",
+            required=True,
+            max_length=32,
+        )
+        self.reminder_days = discord.ui.TextInput(
+            label="Reminder interval in days",
+            default=str(item.get("reminder_days", conf["reminder_days"])),
+            required=True,
+            max_length=3,
+        )
+        self.mention = discord.ui.TextInput(
+            label="Mention configured role?",
+            default="yes" if item.get("mention", False) else "no",
+            required=True,
+            max_length=5,
+        )
+        self.end_notice = discord.ui.TextInput(
+            label="Post an ended notice?",
+            default="yes" if item.get("end_announce", conf["end_announce"]) else "no",
+            required=True,
+            max_length=5,
+        )
+        self.add_item(self.ends)
+        self.add_item(self.reminder_days)
+        self.add_item(self.mention)
+        self.add_item(self.end_notice)
+
+    async def on_submit(self, interaction):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            days = int(str(self.reminder_days).strip())
+            await self.cog.update_spotlight(
+                self.guild,
+                self.item_id,
+                ends_text=str(self.ends),
+                reminder_days=days,
+                mention_text=str(self.mention),
+                end_notice_text=str(self.end_notice),
+            )
+        except (TypeError, ValueError) as exc:
+            await interaction.followup.send(
+                f"I couldn't update **{self.item_id}**: {exc}", ephemeral=True
+            )
+            return
+        await interaction.followup.send(f"Updated **{self.item_id}**.", ephemeral=True)
+        if self.manager is not None:
+            await self.manager.refresh_message()
+
+
+class SpotlightManageView(discord.ui.View):
+    PAGE_SIZE = 10
+
+    def __init__(self, cog, guild, *, page=0):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.guild = guild
+        self.page = page
+        self.selected_id = None
+        self.pending_end_id = None
+        self.message = None
+
+    async def interaction_check(self, interaction):
+        if interaction.guild is None or interaction.guild.id != self.guild.id:
+            return False
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "Only server administrators can manage Spotlights.", ephemeral=True
+            )
+            return False
+        return True
+
+    def rebuild(self, items):
+        self.clear_items()
+        page_count = max(1, (len(items) + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        self.page = min(self.page, page_count - 1)
+        page_items = items[self.page * self.PAGE_SIZE : (self.page + 1) * self.PAGE_SIZE]
+
+        if page_items:
+            options = []
+            for item in page_items:
+                summary = " ".join((item.get("content") or "").split())
+                summary = summary or "Untitled announcement"
+                options.append(
+                    discord.SelectOption(
+                        label=item["id"],
+                        description=summary[:100],
+                        value=item["id"],
+                        default=item["id"] == self.selected_id,
+                    )
+                )
+            selector = discord.ui.Select(
+                placeholder="Choose a Spotlight to manage",
+                options=options,
+                row=0,
+            )
+
+            async def select_callback(interaction):
+                self.selected_id = selector.values[0]
+                self.pending_end_id = None
+                self.rebuild(items)
+                await interaction.response.edit_message(view=self)
+
+            selector.callback = select_callback
+            self.add_item(selector)
+
+        edit_button = discord.ui.Button(
+            label="Edit selected",
+            style=discord.ButtonStyle.primary,
+            disabled=self.selected_id is None,
+            row=1,
+        )
+
+        async def edit_callback(interaction):
+            conf = await self.cog.config.guild(self.guild).all()
+            item = conf["items"].get(self.selected_id)
+            if item is None:
+                await interaction.response.send_message(
+                    "That Spotlight is no longer active. Refresh the schedule.", ephemeral=True
+                )
+                return
+            await interaction.response.send_modal(
+                EditSpotlightModal(
+                    self.cog, self.guild, self.selected_id, item, conf, manager=self
+                )
+            )
+
+        edit_button.callback = edit_callback
+        self.add_item(edit_button)
+
+        confirming = self.pending_end_id is not None and self.pending_end_id == self.selected_id
+        end_button = discord.ui.Button(
+            label=(f"Confirm end {self.selected_id}" if confirming else "End selected"),
+            style=discord.ButtonStyle.danger,
+            disabled=self.selected_id is None,
+            row=1,
+        )
+
+        async def end_callback(interaction):
+            if not confirming:
+                self.pending_end_id = self.selected_id
+                self.rebuild(items)
+                await interaction.response.edit_message(view=self)
+                return
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            conf = await self.cog.config.guild(self.guild).all()
+            item = conf["items"].get(self.selected_id)
+            if item is None:
+                await interaction.followup.send(
+                    "That Spotlight is no longer active.", ephemeral=True
+                )
+            else:
+                item_id = self.selected_id
+                await self.cog._end_item(self.guild, item_id, item, conf)
+                self.selected_id = None
+                self.pending_end_id = None
+                await interaction.followup.send(f"Ended **{item_id}**.", ephemeral=True)
+            await self.refresh_message()
+
+        end_button.callback = end_callback
+        self.add_item(end_button)
+
+        refresh_button = discord.ui.Button(
+            label="Refresh", style=discord.ButtonStyle.secondary, row=1
+        )
+
+        async def refresh_callback(interaction):
+            await interaction.response.defer()
+            self.pending_end_id = None
+            await self.refresh_message()
+
+        refresh_button.callback = refresh_callback
+        self.add_item(refresh_button)
+
+        if page_count > 1:
+            previous_button = discord.ui.Button(
+                label="Previous", disabled=self.page == 0, row=2
+            )
+            next_button = discord.ui.Button(
+                label="Next", disabled=self.page >= page_count - 1, row=2
+            )
+
+            async def previous_callback(interaction):
+                self.page -= 1
+                self.selected_id = None
+                self.pending_end_id = None
+                await interaction.response.defer()
+                await self.refresh_message()
+
+            async def next_callback(interaction):
+                self.page += 1
+                self.selected_id = None
+                self.pending_end_id = None
+                await interaction.response.defer()
+                await self.refresh_message()
+
+            previous_button.callback = previous_callback
+            next_button.callback = next_callback
+            self.add_item(previous_button)
+            self.add_item(next_button)
+
+    async def refresh_message(self):
+        conf = await self.cog.config.guild(self.guild).all()
+        items = sorted(conf["items"].values(), key=lambda item: item["ends_at"])
+        if self.selected_id and self.selected_id not in conf["items"]:
+            self.selected_id = None
+            self.pending_end_id = None
+        self.rebuild(items)
+        if self.message is not None:
+            await self.message.edit(
+                embed=self.cog._build_schedule_embed(self.guild, conf, items, self.page),
+                view=self,
+            )
 
 
 class Spotlight(commands.Cog):
@@ -269,6 +496,48 @@ class Spotlight(commands.Cog):
         async with self.config.guild(guild).items() as items:
             items[item_id] = item
         return item_id
+
+    async def update_spotlight(
+        self,
+        guild,
+        item_id,
+        *,
+        ends_text=None,
+        reminder_days=None,
+        mention_text=None,
+        end_notice_text=None,
+    ):
+        conf = await self.config.guild(guild).all()
+        item_id = item_id.upper()
+        item = conf["items"].get(item_id)
+        if item is None:
+            raise ValueError("That active Spotlight wasn't found.")
+
+        updated = dict(item)
+        if ends_text is not None:
+            ends_at = _parse_end(ends_text, conf["timezone"], duration_base=_utcnow())
+            if ends_at <= _utcnow():
+                raise ValueError("The ending time must be in the future.")
+            updated["ends_at"] = ends_at.timestamp()
+        if reminder_days is not None:
+            if not 1 <= reminder_days <= 365:
+                raise ValueError("Reminder days must be between 1 and 365.")
+            updated["reminder_days"] = reminder_days
+            updated["next_reminder_at"] = self._next_reminder(
+                _utcnow(), conf, reminder_days
+            ).timestamp()
+        if mention_text is not None:
+            updated["mention"] = _parse_bool(mention_text, updated.get("mention", False))
+        if end_notice_text is not None:
+            updated["end_announce"] = _parse_bool(
+                end_notice_text, updated.get("end_announce", conf["end_announce"])
+            )
+
+        async with self.config.guild(guild).items() as items:
+            if item_id not in items:
+                raise ValueError("That active Spotlight wasn't found.")
+            items[item_id] = updated
+        return updated
 
     @staticmethod
     def _image_url(item):
@@ -436,6 +705,37 @@ class Spotlight(commands.Cog):
     async def before_scheduler(self):
         await self.bot.wait_until_red_ready()
 
+    def _build_schedule_embed(self, guild, conf, items, page=0):
+        page_size = SpotlightManageView.PAGE_SIZE
+        page_count = max(1, (len(items) + page_size - 1) // page_size)
+        page = min(page, page_count - 1)
+        page_items = items[page * page_size : (page + 1) * page_size]
+        embed = discord.Embed(title="Spotlight schedule", color=discord.Color.gold())
+        if not page_items:
+            embed.description = "There are no active Spotlights."
+        else:
+            lines = []
+            for item in page_items:
+                destination_id = conf.get("destination_channel") or item.get("source_channel_id")
+                destination = guild.get_channel(destination_id or 0)
+                channel_text = destination.mention if destination else "unavailable channel"
+                ends_at = int(item["ends_at"])
+                next_at = int(item.get("next_reminder_at", item["ends_at"]))
+                interval = item.get("reminder_days", conf["reminder_days"])
+                next_text = f"<t:{next_at}:R>" if next_at < ends_at else "none before end"
+                lines.append(
+                    f"**{item['id']}** · ends <t:{ends_at}:R> · next {next_text}\n"
+                    f"Every **{interval}d** · {channel_text} · mention "
+                    f"**{'on' if item.get('mention') else 'off'}** · "
+                    f"end notice **{'on' if item.get('end_announce', conf['end_announce']) else 'off'}** "
+                    f"· [original]({item['source_url']})"
+                )
+            embed.description = "\n\n".join(lines)
+        embed.set_footer(
+            text=f"{len(items)} active · Page {page + 1}/{page_count} · Times update automatically"
+        )
+        return embed
+
     async def _show_active(self, ctx):
         conf = await self.config.guild(ctx.guild).all()
         items = sorted(conf["items"].values(), key=lambda item: item["ends_at"])
@@ -487,6 +787,14 @@ class Spotlight(commands.Cog):
                 view=self._build_source_view(item),
             )
 
+    async def _show_schedule(self, ctx):
+        conf = await self.config.guild(ctx.guild).all()
+        items = sorted(conf["items"].values(), key=lambda item: item["ends_at"])
+        embed = self._build_schedule_embed(ctx.guild, conf, items)
+        view = SpotlightManageView(self, ctx.guild)
+        view.rebuild(items)
+        view.message = await ctx.send(embed=embed, view=view)
+
     @commands.guild_only()
     @commands.hybrid_group(name="spotlight", invoke_without_command=True)
     async def spotlight(self, ctx):
@@ -497,6 +805,12 @@ class Spotlight(commands.Cog):
     async def spotlight_list(self, ctx):
         """Show every active Spotlight."""
         await self._show_active(ctx)
+
+    @spotlight.command(name="admin", aliases=["manage", "schedule"])
+    @commands.admin()
+    async def spotlight_admin(self, ctx):
+        """Show and manage the current Spotlight repost schedule."""
+        await self._show_schedule(ctx)
 
     @spotlight.command(name="add")
     @commands.admin()
@@ -515,6 +829,38 @@ class Spotlight(commands.Cog):
             await ctx.send(f"I couldn't add that Spotlight: {exc}")
             return
         await ctx.send(f"Added **{item_id}** to Spotlight.")
+
+    @spotlight.command(name="edit")
+    @commands.admin()
+    async def spotlight_edit(
+        self,
+        ctx,
+        item_id: str,
+        ends: str = None,
+        reminder_days: int = None,
+        mention: bool = None,
+        end_notice: bool = None,
+    ):
+        """Edit an active Spotlight; durations are measured from now."""
+        if all(value is None for value in (ends, reminder_days, mention, end_notice)):
+            await ctx.send(
+                "Provide at least one change, or use the Edit button in "
+                f"`{ctx.clean_prefix}spotlight admin`."
+            )
+            return
+        try:
+            await self.update_spotlight(
+                ctx.guild,
+                item_id,
+                ends_text=ends,
+                reminder_days=reminder_days,
+                mention_text=None if mention is None else str(mention),
+                end_notice_text=None if end_notice is None else str(end_notice),
+            )
+        except ValueError as exc:
+            await ctx.send(f"I couldn't update **{item_id.upper()}**: {exc}")
+            return
+        await ctx.send(f"Updated **{item_id.upper()}**.")
 
     @spotlight.command(name="end")
     @commands.admin()

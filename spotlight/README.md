@@ -32,7 +32,7 @@ Only server administrators can add, end, or configure Spotlights.
 
 | Command | Purpose |
 | --- | --- |
-| `[p]spotlight` | Show all active Spotlights, ordered by ending time. |
+| `[p]spotlight` | Show all currently tagged Spotlight posts, ordered by ending time. |
 | `[p]spotlight list` | Same as above. |
 
 ## Administrator commands
@@ -40,6 +40,8 @@ Only server administrators can add, end, or configure Spotlights.
 | Command | Purpose |
 | --- | --- |
 | `[p]spotlight add <duration>` | Add the message being replied to. Durations such as `30m`, `48h`, `7d`, or `2w` are measured from the original post. |
+| `[p]spotlight admin` | Show the compact repost schedule with edit, end, refresh, and paging controls. `manage` and `schedule` are aliases. |
+| `[p]spotlight edit <ID> [ends] [reminder days] [mention] [end notice]` | Update an active Spotlight. In this command, durations such as `7d` are measured from now. Slash-command users can fill only the fields they want to change. |
 | `[p]spotlight end [ID]` | End a Spotlight by ID, or by replying to its source, reminder, or active-list card. |
 | `[p]spotlightset show` | Show the server's settings. |
 | `[p]spotlightset channel [#channel]` | Use one destination, or omit it to repost in each source channel. |
@@ -54,6 +56,8 @@ Only server administrators can add, end, or configure Spotlights.
 ## Reminder behavior
 
 - Multiple Spotlights may be active at once.
+- The administrator schedule dashboard shows each Spotlight's end time, next reminder, interval, destination, mention setting, ended-notice setting, and original-message link without reposting the announcement content.
+- Administrators can select an item in the dashboard and edit or end it. Ending requires a second confirmation click.
 - Each Spotlight expires automatically.
 - Role mentions are disabled by default.
 - Custom Discord emojis can be stripped when the bot cannot render emojis from another server; standard Unicode emoji are left unchanged.
