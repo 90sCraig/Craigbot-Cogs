@@ -94,6 +94,12 @@ class AddSpotlightModal(discord.ui.Modal):
             required=False,
             max_length=3,
         )
+        self.reminder_time = discord.ui.TextInput(
+            label="Post time in server timezone (optional)",
+            placeholder=f"Default: {defaults['reminder_time']} (24-hour HH:MM)",
+            required=False,
+            max_length=5,
+        )
         self.mention = discord.ui.TextInput(
             label="Mention configured role? (optional)",
             placeholder=f"Default: {'yes' if defaults['mention_default'] else 'no'}",
@@ -108,6 +114,7 @@ class AddSpotlightModal(discord.ui.Modal):
         )
         self.add_item(self.ends)
         self.add_item(self.reminder_days)
+        self.add_item(self.reminder_time)
         self.add_item(self.mention)
         self.add_item(self.end_notice)
 
@@ -123,6 +130,7 @@ class AddSpotlightModal(discord.ui.Modal):
                 self.message,
                 ends_text=str(self.ends),
                 reminder_days=days,
+                reminder_time_text=str(self.reminder_time),
                 mention_text=str(self.mention),
                 end_notice_text=str(self.end_notice),
             )
@@ -159,6 +167,13 @@ class EditSpotlightModal(discord.ui.Modal):
             required=True,
             max_length=3,
         )
+        self.reminder_time = discord.ui.TextInput(
+            label="Post time (server timezone)",
+            default=item.get("reminder_time", conf["reminder_time"]),
+            placeholder="24-hour HH:MM, such as 17:00",
+            required=True,
+            max_length=5,
+        )
         self.mention = discord.ui.TextInput(
             label="Mention configured role?",
             default="yes" if item.get("mention", False) else "no",
@@ -173,6 +188,7 @@ class EditSpotlightModal(discord.ui.Modal):
         )
         self.add_item(self.ends)
         self.add_item(self.reminder_days)
+        self.add_item(self.reminder_time)
         self.add_item(self.mention)
         self.add_item(self.end_notice)
 
@@ -185,6 +201,7 @@ class EditSpotlightModal(discord.ui.Modal):
                 self.item_id,
                 ends_text=str(self.ends),
                 reminder_days=days,
+                reminder_time_text=str(self.reminder_time),
                 mention_text=str(self.mention),
                 end_notice_text=str(self.end_notice),
             )
@@ -390,6 +407,12 @@ class Spotlight(commands.Cog):
 
     async def cog_load(self):
         self.bot.tree.add_command(self.message_action)
+        # Freeze the current server default onto Spotlights created before
+        # per-item post times were introduced.
+        for guild_id, conf in (await self.config.all_guilds()).items():
+            async with self.config.guild_from_id(guild_id).items() as items:
+                for item in items.values():
+                    item.setdefault("reminder_time", conf["reminder_time"])
 
     def cog_unload(self):
         self.scheduler.cancel()
@@ -443,12 +466,16 @@ class Spotlight(commands.Cog):
             "source_embed": first_embed,
         }
 
-    def _next_reminder(self, after, conf, days):
+    def _next_reminder(
+        self, after, conf, days, reminder_time_text=None, *, allow_today=False
+    ):
         zone = _safe_zone(conf.get("timezone"))
         local = after.astimezone(zone)
-        reminder_time = _parse_hhmm(conf.get("reminder_time")) or time(12, 0)
-        target_date = local.date() + timedelta(days=days)
+        reminder_time = _parse_hhmm(reminder_time_text or conf.get("reminder_time")) or time(12, 0)
+        target_date = local.date() + timedelta(days=0 if allow_today else days)
         target = datetime.combine(target_date, reminder_time, tzinfo=zone)
+        if allow_today and target <= local:
+            target += timedelta(days=days)
         return target.astimezone(timezone.utc)
 
     async def create_spotlight(
@@ -457,6 +484,7 @@ class Spotlight(commands.Cog):
         *,
         ends_text,
         reminder_days=None,
+        reminder_time_text="",
         mention_text="",
         end_notice_text="",
     ):
@@ -476,6 +504,9 @@ class Spotlight(commands.Cog):
             raise ValueError("The ending time must be in the future.")
 
         days = reminder_days or conf["reminder_days"]
+        reminder_time_text = reminder_time_text.strip() or conf["reminder_time"]
+        if _parse_hhmm(reminder_time_text) is None:
+            raise ValueError("Use 24-hour `HH:MM` format for the post time, such as `17:00`.")
         mention = _parse_bool(mention_text, conf["mention_default"])
         end_notice = _parse_bool(end_notice_text, conf["end_announce"])
 
@@ -488,9 +519,16 @@ class Spotlight(commands.Cog):
             "created_at": created.timestamp(),
             "ends_at": ends_at.timestamp(),
             "reminder_days": days,
+            "reminder_time": reminder_time_text,
             "mention": mention,
             "end_announce": end_notice,
-            "next_reminder_at": self._next_reminder(created, conf, days).timestamp(),
+            "next_reminder_at": self._next_reminder(
+                created,
+                conf,
+                days,
+                reminder_time_text,
+                allow_today=True,
+            ).timestamp(),
             "last_reminder_message_id": None,
         }
         await self.config.guild(guild).counter.set(counter)
@@ -505,6 +543,7 @@ class Spotlight(commands.Cog):
         *,
         ends_text=None,
         reminder_days=None,
+        reminder_time_text=None,
         mention_text=None,
         end_notice_text=None,
     ):
@@ -520,12 +559,23 @@ class Spotlight(commands.Cog):
             if ends_at <= _utcnow():
                 raise ValueError("The ending time must be in the future.")
             updated["ends_at"] = ends_at.timestamp()
+        schedule_changed = reminder_days is not None or reminder_time_text is not None
         if reminder_days is not None:
             if not 1 <= reminder_days <= 365:
                 raise ValueError("Reminder days must be between 1 and 365.")
             updated["reminder_days"] = reminder_days
+        if reminder_time_text is not None:
+            reminder_time_text = reminder_time_text.strip()
+            if _parse_hhmm(reminder_time_text) is None:
+                raise ValueError(
+                    "Use 24-hour `HH:MM` format for the post time, such as `17:00`."
+                )
+            updated["reminder_time"] = reminder_time_text
+        if schedule_changed:
+            days = updated.get("reminder_days", conf["reminder_days"])
+            reminder_time = updated.get("reminder_time", conf["reminder_time"])
             updated["next_reminder_at"] = self._next_reminder(
-                _utcnow(), conf, reminder_days
+                _utcnow(), conf, days, reminder_time, allow_today=True
             ).timestamp()
         if mention_text is not None:
             updated["mention"] = _parse_bool(mention_text, updated.get("mention", False))
@@ -696,7 +746,10 @@ class Spotlight(commands.Cog):
                     continue
                 item["last_reminder_message_id"] = reminder.id
                 item["next_reminder_at"] = self._next_reminder(
-                    now, conf, item.get("reminder_days", conf["reminder_days"])
+                    now,
+                    conf,
+                    item.get("reminder_days", conf["reminder_days"]),
+                    item.get("reminder_time", conf["reminder_time"]),
                 ).timestamp()
                 async with self.config.guild(guild).items() as items:
                     if item_id in items:
@@ -723,17 +776,21 @@ class Spotlight(commands.Cog):
                 ends_at = int(item["ends_at"])
                 next_at = int(item.get("next_reminder_at", item["ends_at"]))
                 interval = item.get("reminder_days", conf["reminder_days"])
+                reminder_time = item.get("reminder_time", conf["reminder_time"])
                 next_text = f"<t:{next_at}:R>" if next_at < ends_at else "none before end"
                 lines.append(
                     f"**{item['id']}** · ends <t:{ends_at}:R> · next {next_text}\n"
-                    f"Every **{interval}d** · {channel_text} · mention "
+                    f"Every **{interval}d** at **{reminder_time}** · {channel_text} · mention "
                     f"**{'on' if item.get('mention') else 'off'}** · "
                     f"end notice **{'on' if item.get('end_announce', conf['end_announce']) else 'off'}** "
                     f"· [original]({item['source_url']})"
                 )
             embed.description = "\n\n".join(lines)
         embed.set_footer(
-            text=f"{len(items)} active · Page {page + 1}/{page_count} · Times update automatically"
+            text=(
+                f"{len(items)} active · Page {page + 1}/{page_count} · "
+                f"Post times use {conf['timezone']}"
+            )
         )
         return embed
 
@@ -839,11 +896,15 @@ class Spotlight(commands.Cog):
         item_id: str,
         ends: str = None,
         reminder_days: int = None,
+        reminder_time: str = None,
         mention: bool = None,
         end_notice: bool = None,
     ):
         """Edit an active Spotlight; durations are measured from now."""
-        if all(value is None for value in (ends, reminder_days, mention, end_notice)):
+        if all(
+            value is None
+            for value in (ends, reminder_days, reminder_time, mention, end_notice)
+        ):
             await ctx.send(
                 "Provide at least one change, or use the Edit button in "
                 f"`{ctx.clean_prefix}spotlight admin`."
@@ -855,6 +916,7 @@ class Spotlight(commands.Cog):
                 item_id,
                 ends_text=ends,
                 reminder_days=reminder_days,
+                reminder_time_text=reminder_time,
                 mention_text=None if mention is None else str(mention),
                 end_notice_text=None if end_notice is None else str(end_notice),
             )
