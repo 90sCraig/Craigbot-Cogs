@@ -229,7 +229,8 @@ class SpotlightManageView(discord.ui.View):
         if page_items:
             options = []
             for item in page_items:
-                summary = " ".join((item.get("content") or "").split())
+                summary = _CUSTOM_EMOJI_RE.sub("", item.get("content") or "")
+                summary = " ".join(summary.split())
                 summary = summary or "Untitled announcement"
                 options.append(
                     discord.SelectOption(
