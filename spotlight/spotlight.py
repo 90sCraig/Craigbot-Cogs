@@ -396,6 +396,7 @@ class Spotlight(commands.Cog):
             mention_default=False,
             end_announce=True,
             strip_custom_emojis=False,
+            flood_guard_messages=5,
             counter=0,
             items={},
         )
@@ -737,13 +738,25 @@ class Spotlight(commands.Cog):
                 # This matters when several Spotlights share one destination:
                 # their reminder posts should not make one another look like
                 # fresh conversation and trigger another batch the next day.
-                if channel.last_message_id in previous_reminders:
-                    continue
+                guard_depth = conf.get("flood_guard_messages", 5)
+                if guard_depth:
+                    try:
+                        recent_ids = {
+                            message.id
+                            async for message in channel.history(limit=guard_depth)
+                        }
+                    except (discord.Forbidden, discord.HTTPException):
+                        # Preserve the original newest-message guard if message
+                        # history is unavailable to the bot.
+                        recent_ids = {channel.last_message_id}
+                    if recent_ids & previous_reminders:
+                        continue
                 try:
                     reminder = await self._send_item(guild, conf, item)
                 except (ValueError, discord.HTTPException):
                     log.exception("Failed to remind Spotlight %s in guild %s", item_id, guild.id)
                     continue
+                previous_reminders.add(reminder.id)
                 item["last_reminder_message_id"] = reminder.id
                 item["next_reminder_at"] = self._next_reminder(
                     now,
@@ -1006,6 +1019,7 @@ class Spotlight(commands.Cog):
             f"Ended announcement: **{'on' if conf['end_announce'] else 'off'}**\n"
             f"Strip custom emojis: "
             f"**{'on' if conf.get('strip_custom_emojis', False) else 'off'}**\n"
+            f"Flood guard: last **{conf.get('flood_guard_messages', 5)} message(s)**\n"
             f"Active Spotlights: **{len(conf['items'])}**"
         )
 
@@ -1047,6 +1061,21 @@ class Spotlight(commands.Cog):
             return
         await self.config.guild(ctx.guild).reminder_time.set(hhmm)
         await ctx.send(f"Default reminder time set to **{hhmm}**.")
+
+    @spotlightset.command(name="floodguard")
+    async def spotlightset_floodguard(self, ctx, messages: int):
+        """Skip a repost when a Spotlight is among the last N channel messages."""
+        if not 0 <= messages <= 50:
+            await ctx.send("Choose a flood-guard lookback between 0 and 50 messages.")
+            return
+        await self.config.guild(ctx.guild).flood_guard_messages.set(messages)
+        if messages == 0:
+            await ctx.send("Spotlight flood control is now **disabled**.")
+        else:
+            await ctx.send(
+                "A Spotlight repost will be skipped when an active Spotlight reminder "
+                f"is among the channel's last **{messages} message(s)**."
+            )
 
     @spotlightset.command(name="mentionrole")
     async def spotlightset_mentionrole(self, ctx, role: discord.Role = None):

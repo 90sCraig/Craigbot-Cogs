@@ -48,6 +48,7 @@ Only server administrators can add, end, or configure Spotlights.
 | `[p]spotlightset timezone <zone>` | Set an IANA timezone, such as `America/New_York`. |
 | `[p]spotlightset interval <days>` | Set the default days between reminders. |
 | `[p]spotlightset time <HH:MM>` | Set the reminder time in the configured timezone. |
+| `[p]spotlightset floodguard <messages>` | Skip a repost when an active Spotlight reminder is among the last N messages in its destination channel. Defaults to `5`; use `0` to disable. |
 | `[p]spotlightset mentionrole [@role]` | Set or clear the optional role that reminders may mention. |
 | `[p]spotlightset mentiondefault <on/off>` | Choose whether new Spotlights mention that role by default. Off initially. |
 | `[p]spotlightset endannounce <on/off>` | Choose whether new Spotlights announce when they end. |
@@ -62,7 +63,7 @@ Only server administrators can add, end, or configure Spotlights.
 - Each Spotlight expires automatically.
 - Role mentions are disabled by default.
 - Custom Discord emojis can be stripped when the bot cannot render emojis from another server; standard Unicode emoji are left unchanged.
-- If a Spotlight's previous reminder is still the newest message in its destination channel, the next reminder is skipped. Once conversation resumes, the due reminder can appear without stacking duplicate posts in a quiet channel.
+- By default, a due repost is skipped when an active Spotlight reminder is among the destination channel's last five messages. Once enough conversation resumes, the overdue reminder can appear without stacking duplicates in a quiet channel. Administrators can adjust this lookback with `[p]spotlightset floodguard`.
 - Server defaults apply to new Spotlights, and the message-action form can override the interval, mention, and ended-notice choices per announcement.
 
 ## Stored data
