@@ -8,7 +8,7 @@ This is voice playback, not Discord screen sharing or video broadcasting. FFmpeg
 
 - FFmpeg must be installed on the same computer as the bot and available on its PATH.
 - The Red instance must have voice support (`PyNaCl`).
-- The bot needs **View Channel**, **Connect**, **Speak**, and **Send Messages** in the destination channel. On a stage channel it also needs permission to become a speaker, or a moderator must invite it to speak.
+- The bot needs **View Channel**, **Connect**, **Speak**, **Send Messages**, and **Embed Links** in the destination channel. Give it **Set Voice Channel Status** if you want the selected status shown above the voice channel. On a stage channel it also needs permission to become a speaker, or a moderator must invite it to speak.
 
 ## Setup
 
@@ -33,12 +33,16 @@ Run `[p]audiostream` (or `[p]localstream`) and use the interactive controls:
 1. Select a local media file.
 2. Select a voice or stage channel.
 3. Choose **Play now** or **Choose start time**.
-4. Optionally enter a message to post in the voice channel's text chat when playback starts.
-5. For scheduled playback, enter `YYYY-MM-DD HH:MM`, `in 10m`, `in 2h`, or `now`.
+4. Set the now-playing title.
+5. Set the voice-channel status, leave it blank to use `Now playing: <title>`, or enter `off` to disable it for this stream.
+6. Optionally enter a message to post in the voice channel's text chat when playback starts.
+7. For scheduled playback, enter `YYYY-MM-DD HH:MM`, `in 10m`, `in 2h`, or `now`.
 
 Scheduled jobs survive bot restarts. If the bot restarts during playback, that playback cannot resume from its previous position.
 
 AudioStream retains the 100 most recent playback results per server. History records the file, voice channel, optional chat message, actual start and finish times, duration, and whether playback completed, was stopped, or failed.
+
+When playback begins, AudioStream posts a now-playing card with the chosen title, job ID, start time, media duration, and expected finish time when FFprobe can read it. The same card is updated to Completed, Stopped, or Failed at the end. A custom voice-channel status is cleared automatically when playback ends. Voice-channel statuses are not available on stage channels, but their now-playing cards still work.
 
 ## Commands
 

@@ -91,6 +91,20 @@ class PlaybackModal(discord.ui.Modal):
                 max_length=32,
             )
             self.add_item(self.start_time)
+        default_title = Path(view.selected_file).stem[:100]
+        self.display_title = discord.ui.TextInput(
+            label="Now-playing title",
+            default=default_title,
+            placeholder="Shown in the status, card, and history",
+            required=True,
+            max_length=100,
+        )
+        self.voice_status = discord.ui.TextInput(
+            label="Voice channel status",
+            placeholder="Blank: Now playing: title • Enter off to disable",
+            required=False,
+            max_length=500,
+        )
         self.announcement = discord.ui.TextInput(
             label="Voice channel chat message (optional)",
             placeholder="Posted in the selected voice channel when playback starts",
@@ -98,10 +112,18 @@ class PlaybackModal(discord.ui.Modal):
             required=False,
             max_length=2000,
         )
+        self.add_item(self.display_title)
+        self.add_item(self.voice_status)
         self.add_item(self.announcement)
 
     async def on_submit(self, interaction):
         try:
+            display_title = str(self.display_title).strip()
+            status_text = str(self.voice_status).strip()
+            if status_text.lower() in {"off", "none", "disabled"}:
+                status_text = None
+            elif not status_text:
+                status_text = f"Now playing: {display_title}"[:500]
             start_at = (
                 _utcnow()
                 if self.play_now
@@ -116,6 +138,8 @@ class PlaybackModal(discord.ui.Modal):
                 interaction.channel_id,
                 start_at,
                 announcement=str(self.announcement).strip() or None,
+                display_title=display_title,
+                voice_status=status_text,
             )
         except ValueError as exc:
             await interaction.response.send_message(str(exc), ephemeral=True)
@@ -339,6 +363,35 @@ class AudioStream(commands.Cog):
             raise ValueError("That media file is no longer available.")
         return candidate
 
+    async def _probe_duration(self, media):
+        ffprobe = shutil.which("ffprobe")
+        if ffprobe is None:
+            return None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(media),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            try:
+                stdout, _ = await asyncio.wait_for(process.communicate(), timeout=5)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.communicate()
+                raise
+            duration = float(stdout.decode("utf-8", errors="replace").strip())
+            return duration if duration > 0 else None
+        except (OSError, ValueError, asyncio.TimeoutError):
+            log.warning("Could not determine the duration of %s", media)
+            return None
+
     async def create_job(
         self,
         guild,
@@ -348,6 +401,8 @@ class AudioStream(commands.Cog):
         start_at,
         *,
         announcement=None,
+        display_title=None,
+        voice_status=None,
     ):
         await self._resolve_media(filename)
         channel = guild.get_channel(channel_id)
@@ -366,6 +421,8 @@ class AudioStream(commands.Cog):
                 "text_channel_id": text_channel_id,
                 "start_at": start_at.timestamp(),
                 "announcement": announcement,
+                "display_title": display_title or Path(filename).stem,
+                "voice_status": voice_status,
             }
         return item_id
 
@@ -394,10 +451,47 @@ class AudioStream(commands.Cog):
             "status": status,
             "error": str(error)[:300] if error else None,
             "announcement": job.get("announcement"),
+            "display_title": job.get("display_title"),
+            "voice_status": job.get("voice_status"),
         }
         async with self.config.guild(guild).history() as history:
             history.append(entry)
             del history[:-HISTORY_LIMIT]
+
+    def _build_playback_embed(
+        self, job, channel, status, *, started_at=None, finished_at=None, duration=None
+    ):
+        styles = {
+            "playing": ("Now playing", discord.Color.blurple()),
+            "completed": ("Playback completed", discord.Color.green()),
+            "stopped": ("Playback stopped", discord.Color.orange()),
+            "failed": ("Playback failed", discord.Color.red()),
+        }
+        heading, color = styles[status]
+        title = job.get("display_title") or Path(job["filename"]).stem
+        embed = discord.Embed(title=heading, description=f"**{title}**", color=color)
+        embed.add_field(name="Job", value=job["id"], inline=True)
+        embed.add_field(name="Channel", value=channel.mention, inline=True)
+        if started_at:
+            embed.add_field(
+                name="Started", value=f"<t:{int(started_at)}:F>", inline=False
+            )
+        if duration:
+            seconds = max(0, int(duration))
+            duration_text = f"{seconds // 60}m {seconds % 60}s"
+            embed.add_field(name="Duration", value=duration_text, inline=True)
+            if status == "playing" and started_at:
+                embed.add_field(
+                    name="Expected finish",
+                    value=f"<t:{int(started_at + duration)}:R>",
+                    inline=True,
+                )
+        if finished_at:
+            embed.add_field(
+                name="Finished", value=f"<t:{int(finished_at)}:F>", inline=False
+            )
+        embed.set_footer(text=job["filename"][:2048])
+        return embed
 
     async def _run_job(self, guild, item_id, job):
         key = (guild.id, item_id)
@@ -408,6 +502,10 @@ class AudioStream(commands.Cog):
         started_at = None
         playback_started = False
         connected_by_us = False
+        media_duration = None
+        now_playing_message = None
+        voice_status_set = False
+        channel = None
         try:
             if lock.locked():
                 failure_reason = "another AudioStream job was active"
@@ -422,6 +520,7 @@ class AudioStream(commands.Cog):
                 if not isinstance(channel, (discord.VoiceChannel, discord.StageChannel)):
                     raise RuntimeError("the selected voice channel no longer exists")
                 media = await self._resolve_media(job["filename"])
+                media_duration = await self._probe_duration(media)
                 voice = guild.voice_client
                 if voice is not None and (voice.is_playing() or voice.is_paused()):
                     raise RuntimeError("the bot is already playing audio in this server")
@@ -455,18 +554,17 @@ class AudioStream(commands.Cog):
                 playback_started = True
                 started_at = _utcnow().timestamp()
                 self._active_jobs[guild.id] = item_id
-                await self._notify(
-                    guild,
-                    job,
-                    f"**{item_id}** is now playing **{job['filename']}** in {channel.mention}.",
-                )
-                announcement = job.get("announcement")
-                if announcement:
+                status_text = job.get("voice_status")
+                if isinstance(channel, discord.VoiceChannel) and status_text:
                     try:
-                        await channel.send(announcement)
+                        await channel.edit(
+                            status=status_text,
+                            reason=f"AudioStream started {item_id}",
+                        )
+                        voice_status_set = True
                     except (discord.Forbidden, discord.HTTPException) as exc:
                         log.warning(
-                            "Could not post the voice-chat message for %s in guild %s: %s",
+                            "Could not set the voice status for %s in guild %s: %s",
                             item_id,
                             guild.id,
                             exc,
@@ -474,9 +572,46 @@ class AudioStream(commands.Cog):
                         await self._notify(
                             guild,
                             job,
-                            f"**{item_id}** started, but I couldn't post its message in "
-                            f"{channel.mention}. Check my Send Messages permission there.",
+                            f"**{item_id}** started, but I couldn't set the status for "
+                            f"{channel.mention}. Check my Set Voice Channel Status permission.",
                         )
+                elif isinstance(channel, discord.StageChannel) and status_text:
+                    await self._notify(
+                        guild,
+                        job,
+                        f"**{item_id}** started. Voice-channel statuses aren't available "
+                        "for stage channels, so only the now-playing card was posted.",
+                    )
+                await self._notify(
+                    guild,
+                    job,
+                    f"**{item_id}** is now playing **{job['filename']}** in {channel.mention}.",
+                )
+                announcement = job.get("announcement")
+                try:
+                    now_playing_message = await channel.send(
+                        content=announcement,
+                        embed=self._build_playback_embed(
+                            job,
+                            channel,
+                            "playing",
+                            started_at=started_at,
+                            duration=media_duration,
+                        ),
+                    )
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    log.warning(
+                        "Could not post the now-playing card for %s in guild %s: %s",
+                        item_id,
+                        guild.id,
+                        exc,
+                    )
+                    await self._notify(
+                        guild,
+                        job,
+                        f"**{item_id}** started, but I couldn't post in "
+                        f"{channel.mention}. Check my Send Messages and Embed Links permissions there.",
+                    )
                 await finished.wait()
                 if playback_error:
                     raise RuntimeError(str(playback_error[0]))
@@ -499,6 +634,32 @@ class AudioStream(commands.Cog):
             log.exception("Audio job %s failed in guild %s", item_id, guild.id)
             await self._notify(guild, job, f"**{item_id}** could not play: {exc}")
         finally:
+            finished_at = _utcnow().timestamp()
+            if now_playing_message is not None and channel is not None:
+                actual_duration = (
+                    finished_at - started_at if started_at is not None else None
+                )
+                try:
+                    await now_playing_message.edit(
+                        embed=self._build_playback_embed(
+                            job,
+                            channel,
+                            status,
+                            started_at=started_at,
+                            finished_at=finished_at,
+                            duration=actual_duration,
+                        )
+                    )
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+            if voice_status_set and isinstance(channel, discord.VoiceChannel):
+                try:
+                    await channel.edit(
+                        status=None,
+                        reason=f"AudioStream ended {item_id}",
+                    )
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
             voice = guild.voice_client
             if voice is not None and (playback_started or connected_by_us):
                 try:
@@ -527,12 +688,17 @@ class AudioStream(commands.Cog):
         for job in sorted(conf["jobs"].values(), key=lambda item: item["start_at"]):
             channel = guild.get_channel(job["channel_id"])
             timestamp = int(job["start_at"])
-            filename = job["filename"]
-            if len(filename) > 80:
-                filename = "…" + filename[-79:]
+            title = job.get("display_title") or job["filename"]
+            if len(title) > 70:
+                title = title[:69] + "…"
+            voice_status = job.get("voice_status") or "off"
+            if len(voice_status) > 50:
+                voice_status = voice_status[:49] + "…"
             lines.append(
-                f"**{job['id']}** · `{filename}` · "
-                f"{channel.mention if channel else 'missing channel'} · <t:{timestamp}:F>"
+                f"**{job['id']}** · `{title}` · "
+                f"{channel.mention if channel else 'missing channel'} · <t:{timestamp}:F> · "
+                f"status `{voice_status}` · message "
+                f"**{'yes' if job.get('announcement') else 'no'}**"
             )
         return lines
 
@@ -541,9 +707,13 @@ class AudioStream(commands.Cog):
         lines = []
         for entry in reversed(history):
             channel = guild.get_channel(entry.get("channel_id") or 0)
-            filename = entry.get("filename") or "Unknown file"
-            if len(filename) > 70:
-                filename = "…" + filename[-69:]
+            display_title = (
+                entry.get("display_title")
+                or entry.get("filename")
+                or "Unknown file"
+            )
+            if len(display_title) > 70:
+                display_title = display_title[:69] + "…"
             status = entry.get("status", "failed")
             started_at = entry.get("started_at")
             finished_at = entry.get("finished_at")
@@ -556,7 +726,7 @@ class AudioStream(commands.Cog):
                 elapsed = "not started"
             line = (
                 f"{icons.get(status, '•')} **{entry.get('id', 'Unknown')}** · "
-                f"**{status.title()}** · `{filename}` · "
+                f"**{status.title()}** · `{display_title}` · "
                 f"{channel.mention if channel else 'missing channel'} · "
                 f"{when} · {elapsed}"
             )
@@ -598,13 +768,19 @@ class AudioStream(commands.Cog):
         """List scheduled and active audio jobs."""
         conf = await self.config.guild(ctx.guild).all()
         lines = self._job_lines(ctx.guild, conf)
-        visible = lines[:15]
+        heading = "**Scheduled audio**\n"
+        visible = []
+        current_length = len(heading)
+        for line in lines:
+            if len(visible) >= 15 or current_length + len(line) + 1 > 1900:
+                break
+            visible.append(line)
+            current_length += len(line) + 1
         if len(lines) > len(visible):
-            visible.append(f"…and **{len(lines) - len(visible)}** more.")
-        await ctx.send(
-            "**Scheduled audio**\n"
-            + ("\n".join(visible) if visible else "Nothing scheduled.")
-        )
+            remainder = f"…and **{len(lines) - len(visible)}** more."
+            if current_length + len(remainder) + 1 <= 2000:
+                visible.append(remainder)
+        await ctx.send(heading + ("\n".join(visible) if visible else "Nothing scheduled."))
 
     @audiostream.command(name="cancel")
     async def audiostream_cancel(self, ctx, item_id: str):
@@ -695,7 +871,8 @@ class AudioStream(commands.Cog):
             "**AudioStream host settings**\n"
             f"Folder: `{root if root else 'not configured'}`\n"
             f"Media files: **{count}**\n"
-            f"FFmpeg: **{'available' if shutil.which('ffmpeg') else 'not found'}**"
+            f"FFmpeg: **{'available' if shutil.which('ffmpeg') else 'not found'}**\n"
+            f"FFprobe: **{'available' if shutil.which('ffprobe') else 'not found'}**"
         )
 
     @commands.guild_only()

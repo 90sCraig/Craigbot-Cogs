@@ -2,7 +2,7 @@
   "name": "AudioStream",
   "requirements": ["tzdata", "PyNaCl>=1.6,<1.7", "davey>=0.1.0"],
   "short": "Schedule local media for playback in a voice channel.",
-  "description": "Bot owners choose a local media folder. Server administrators can then select a file, voice or stage channel, start time, and optional voice-chat announcement. The bot disconnects automatically when playback finishes and keeps a recent playback history.",
+  "description": "Bot owners choose a local media folder. Server administrators can then select a file, voice or stage channel, start time, now-playing title, channel status, and optional voice-chat announcement. The bot posts and updates a now-playing card, disconnects automatically, and keeps recent playback history.",
   "end_user_data_statement": "This cog does not persistently store any Discord user data.",
   "install_msg": "AudioStream loaded. Make sure FFmpeg is installed on the bot host, set a folder with `[p]audiostreamset folder <path>`, and run `[p]audiostream`."
 }
