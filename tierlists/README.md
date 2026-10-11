@@ -33,6 +33,21 @@ Create community-driven tier lists in your server. Admins set up a **category** 
 
 Members can now vote from the pinned message in `#polls`. Adjust how strict the tiers are with `[p]tlset setpercentiles`, and the per-user vote limits with `[p]tlset setmaxvotes`.
 
+## Quick Start
+
+Below is a short example showing how to create a simple tier list. This assumes
+you already have a channel where the voting message will be posted.
+
+```bash
+[p]tierlistset category create Movies #tierlists "Top movies of the 90s"
+[p]tierlistset category option add Movies "The Matrix"
+[p]tierlistset category option add Movies "Jurassic Park"
+[p]tierlistset category updatemessage Movies
+```
+
+Once created, members can vote on each option to help determine the final tier
+ranking.
+
 ## Commands
 
 All setup commands live under `[p]tierlistset` (alias `[p]tlset`).
