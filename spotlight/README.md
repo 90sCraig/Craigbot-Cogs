@@ -63,7 +63,7 @@ Only server administrators can add, end, or configure Spotlights.
 - Each Spotlight expires automatically.
 - Role mentions are disabled by default.
 - Custom Discord emojis can be stripped when the bot cannot render emojis from another server; standard Unicode emoji are left unchanged.
-- By default, a due repost is skipped when an active Spotlight reminder is among the destination channel's last five messages. Once enough conversation resumes, the overdue reminder can appear without stacking duplicates in a quiet channel. Administrators can adjust this lookback with `[p]spotlightset floodguard`.
+- By default, a due repost is skipped when an active Spotlight reminder is among the destination channel's last five messages. A skipped or missed occurrence advances to its next scheduled time; Spotlight never sends a delayed catch-up post when channel activity resumes. Administrators can adjust the lookback with `[p]spotlightset floodguard`.
 - Server defaults apply to new Spotlights, and the message-action form can override the interval, mention, and ended-notice choices per announcement.
 
 ## Stored data

@@ -15,6 +15,7 @@ _DURATION_RE = re.compile(r"^\s*(\d+)\s*([mhdw])\s*$", re.IGNORECASE)
 _CUSTOM_EMOJI_RE = re.compile(r"<a?:[A-Za-z0-9_]+:\d+>")
 _SPOTLIGHT_ID_RE = re.compile(r"\bSPOT-\d+\b", re.IGNORECASE)
 _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+_SCHEDULE_GRACE = timedelta(minutes=5)
 
 
 def _utcnow():
@@ -479,6 +480,20 @@ class Spotlight(commands.Cog):
             target += timedelta(days=days)
         return target.astimezone(timezone.utc)
 
+    def _advance_reminder(self, item, conf, now):
+        """Advance a due reminder without changing its established day cadence."""
+        days = item.get("reminder_days", conf["reminder_days"])
+        reminder_time = item.get("reminder_time", conf["reminder_time"])
+        scheduled = datetime.fromtimestamp(item["next_reminder_at"], timezone.utc)
+        while scheduled <= now:
+            scheduled = self._next_reminder(
+                scheduled,
+                conf,
+                days,
+                reminder_time,
+            )
+        item["next_reminder_at"] = scheduled.timestamp()
+
     async def create_spotlight(
         self,
         message,
@@ -729,8 +744,22 @@ class Spotlight(commands.Cog):
                 if now.timestamp() >= item["ends_at"]:
                     await self._end_item(guild, item_id, item, conf)
                     continue
-                if now.timestamp() < item.get("next_reminder_at", float("inf")):
+                due_timestamp = item.get("next_reminder_at", float("inf"))
+                if now.timestamp() < due_timestamp:
                     continue
+
+                # Consume the occurrence before attempting delivery. A blocked,
+                # missed, or failed occurrence must not turn into an unscheduled
+                # catch-up post later when channel conditions change.
+                due_at = datetime.fromtimestamp(due_timestamp, timezone.utc)
+                within_trigger_window = now - due_at <= _SCHEDULE_GRACE
+                self._advance_reminder(item, conf, now)
+                async with self.config.guild(guild).items() as items:
+                    if item_id in items:
+                        items[item_id] = item
+                if not within_trigger_window:
+                    continue
+
                 channel = await self._destination(guild, conf, item)
                 if channel is None:
                     continue
@@ -758,12 +787,6 @@ class Spotlight(commands.Cog):
                     continue
                 previous_reminders.add(reminder.id)
                 item["last_reminder_message_id"] = reminder.id
-                item["next_reminder_at"] = self._next_reminder(
-                    now,
-                    conf,
-                    item.get("reminder_days", conf["reminder_days"]),
-                    item.get("reminder_time", conf["reminder_time"]),
-                ).timestamp()
                 async with self.config.guild(guild).items() as items:
                     if item_id in items:
                         items[item_id] = item
