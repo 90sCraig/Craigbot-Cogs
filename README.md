@@ -26,6 +26,8 @@ To add these cogs to your Discord bot instance, follow the steps below. Make sur
 
 ## Available Cogs
 
+- **DefaultRole**: Assign a default role to human members after screening, with an Unverified exclusion and preview/backfill commands. [Setup guide](./defaultrole/README.md).
+
 Here are some of the cogs available in this repository:
 
 - **Tierlists**: A cog for users to vote on items in a list, which are then ranked by tiers divided by percentiles based on up/down votes.
