@@ -1,0 +1,9 @@
+{
+  "author": ["90sCraig"],
+  "name": "DefaultRole",
+  "short": "Default human-member roles with screening and backfill.",
+  "description": "Assign a default role to human members after screening, excluding a configured verification role. Includes preview, repeatable backfill, and permission checks.",
+  "min_bot_version": "3.5.0",
+  "end_user_data_statement": "This cog stores only server settings, not user data.",
+  "install_msg": "Read defaultrole/README.md. Configure defaultrole role and defaultrole blocked, then enable. Disabled by default."
+}
